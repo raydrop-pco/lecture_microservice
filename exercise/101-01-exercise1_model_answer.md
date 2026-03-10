@@ -52,54 +52,59 @@ Add an **idempotency table** (or “request journal”) plus your orders table.
 
 ---
 
-### 3) Concurrency handling
+### 3) Concurrency + crash safety
 
-**Problem:** two requests arrive concurrently with same key.
+**No.1 Question:** Two identical requests (same idempotency key) arrive at the same time. How do you prevent creating two orders?
 
-**Solution**
+**No.1 Model answer**
 
-* Use the unique constraint + transactional insert:
+* Enforce a unique constraint on `(user_id, endpoint, idempotency_key)`.
+* In a transaction, try to insert an `idempotency_record` with status `IN_PROGRESS`.
+* If insert succeeds: this request owns processing, creates the order, then updates status to `SUCCEEDED` with `order_id`.
+* If insert fails (record already exists):
 
-  * Attempt to insert a new `idempotency_record` with status `IN_PROGRESS`
-  * If insert succeeds: you own the work; create the order; update record to `SUCCEEDED`
-  * If insert fails (already exists):
+  * If status is `SUCCEEDED`, return the stored `order_id` / response.
+  * If status is `IN_PROGRESS`, return `202 Accepted` (or wait briefly and return final result).
+* Do not run order creation logic in the duplicate request path.
 
-    * If `SUCCEEDED`: return stored `order_id` / response
-    * If `IN_PROGRESS`: return `202` with status URL (or wait/poll)
-    * If `FAILED`: return consistent failure semantics (see below)
+Result: only one request can create side effects; concurrent duplicates become safe replays.
 
-This ensures only one creates side effects.
+**No.2 Question:** The service crashes after charging payment but before returning a response. What do you need to record, and when, to avoid inconsistent outcomes?
 
----
+**No.2 Model answer**
 
-### 4) Crash safety / partial completion
+* Insert idempotency record as `IN_PROGRESS` before external side effects (like payment).
+* Call downstream services (payment) with the same idempotency key so retries are also safe downstream.
+* Persist durable milestones (`payment_attempt_id`, `order_id`, final payment state) before marking success.
+* Mark idempotency record `SUCCEEDED` only after durable success state is written.
+* On recovery/retry, if record is stale `IN_PROGRESS`, reconcile by checking payment/order state, then deterministically set `SUCCEEDED` or `FAILED` and return consistent result.
 
-Hard case: crash between side effects.
+**No.3 Question:** What do you do if replay request body differs from the original (same key, different amount/cart)?
 
-**Safer pattern**
+**No.3 Model answer**
 
-* Record `IN_PROGRESS` before doing side effects.
-* Prefer to make the “side effect” idempotent too:
-
-  * e.g., when calling payment provider, pass the same idempotency key downstream.
-* Update `idempotency_records` to `SUCCEEDED` only after you have a durable order_id (and payment result if applicable).
-* On restart, if you see `IN_PROGRESS` older than a threshold:
-
-  * reconcile by checking downstream (payment/order state)
-  * then mark `SUCCEEDED` or `FAILED` deterministically
-
-This matches the whitepaper principle: safe retry relies on idempotency; *controlled retry* is separate. 
+* Compare incoming request hash to stored `request_hash` for that key.
+* If different, reject with `409 Conflict` (or `422 Unprocessable Entity`) and do not create a new order.
+* Return a clear error message, for example: `Idempotency-Key reuse with different request parameters`.
 
 ---
 
-### 5) Handling replay with different body
+### 4) Bonus: Async fulfillment (Part D)
 
-If same key, different payload:
+If order fulfillment is asynchronous, a clean model is:
 
-* Return `409 Conflict` with message like:
+* Return `202 Accepted` from `POST /orders` when work is queued, with `{ order_id, status: "PENDING", status_url }`.
+* Add `GET /orders/{order_id}` (or `GET /jobs/{job_id}`) as the status endpoint.
+* Keep one stable identifier per idempotency key:
 
-  * “Idempotency-Key reuse with different request parameters”
-* Include the original `order_id` if already succeeded (optional), but do not create a new one.
+  * Same key + same request must always return the same `order_id` (or `job_id`).
+  * Replays return current status (`PENDING`, `PROCESSING`, `SUCCEEDED`, `FAILED`) for that same identifier.
+* Persist mapping in `idempotency_records`:
+
+  * key -> `order_id` / `job_id` + current state + timestamps.
+* When processing completes, update final state; subsequent replays/status checks read the stored result rather than creating new work.
+
+This keeps retries safe while supporting long-running workflows.
 
 ---
 

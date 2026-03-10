@@ -28,6 +28,14 @@
 * `INVENTORY_RESERVED → SHIPPING_PENDING`
 * `SHIPPING_PENDING → SHIPPING_SCHEDULED` on `ShipmentScheduled`
 * `SHIPPING_PENDING → FAILED_SHIPPING` on `ShippingFailed`
+* `SHIPPING_SCHEDULED → COMPLETED` on `DeliveryConfirmed` (or `FulfillmentClosed`)
+* Cancel pattern (before shipment):
+
+  * `CREATED|PAYMENT_PENDING|PAYMENT_AUTHORIZED|INVENTORY_PENDING|INVENTORY_RESERVED → CANCELLED` on `CancelRequested`
+  * If payment already authorized, run compensation first (`VoidPaymentAuthorized` / refund), then finalize `CANCELLED`
+* Cancel policy (after shipment scheduled):
+
+  * `SHIPPING_SCHEDULED` is typically non-cancellable; handle via return/refund flow outside this state machine
 
 Key idea: explicit *pending* states make eventual consistency legible.
 
