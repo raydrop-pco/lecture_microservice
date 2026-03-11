@@ -1,6 +1,6 @@
 # Session 2 — Exercise 1 Worksheet (1-pager)
 Design resilience controls for a service experiencing a slow dependency.  
-Focus: **timeouts + controlled retry + circuit breaker/bulkhead + load shedding + graceful degradation**.  
+Focus: **timeouts + controlled retry + circuit breaker + bulkheads + load shedding + graceful degradation**.  
 (Assume correctness/idempotency foundations from Session 1.)
 
 ---
@@ -16,7 +16,7 @@ This makes the “slow C causes resource retention + tail latency + saturation�
 
 ## Part A — Choose safe defaults (10 min)
 1) **Timeouts:** propose A→B, A→C, A→D timeout values and an end-to-end budget.  
-2) **Controlled retry** (transient failures only: timeouts/5xx/throttling):  
+2) **Controlled retry** (transient failures only: timeout/5xx/throttling):  
    - max attempts = ___  
    - backoff = ___  
    - jitter = yes/no  
@@ -30,13 +30,13 @@ This makes the “slow C causes resource retention + tail latency + saturation�
    - what trips it (error/timeout/latency)?
    - cooldown duration?
    - half-open probes (how many / how often)?
-5) **Bulkheads:** what capacity pools are isolated (threads/connections/queues) and along which dimension?
+5) **Bulkheads:** what capacity pools are isolated (threads/connections/queues), and along which dimension?
    - dependency / endpoint / priority / tenant
 
 ---
 
 ## Part C — Degrade gracefully (8 min)
-6) When C is slow/unavailable, what does A return?
+6) When C is slow or unavailable, what does A return?
 - cached/stale
 - partial result
 - fallback default
@@ -55,11 +55,13 @@ List 5 signals to detect the cascade early:
 - breaker state
 - etc.
 
----
+Important: do not rely on global averages only. Slice by endpoint, region, dependency, and tenant to expose hidden pain.
 
 ---
 
-# Session 2 — Exercise 1 Facilitator Cheat Sheet
+---
+
+# Session 2 — Exercise 1 Facilitation Guide
 Objective: design controls that stop a slowdown from becoming an outage:
 **timeouts (boundary) + controlled retry (bounded/backoff/jitter) + breakers/bulkheads + load shedding + clear fallback**.
 
@@ -79,6 +81,8 @@ Objective: design controls that stop a slowdown from becoming an outage:
 - “How do you prevent retry storms?”
 - “How do you fail fast when C is unhealthy?”
 - “What must remain available vs what can degrade?”
+- “Which metrics are you reading individually, and what story do they tell when combined?”
+- “Which dimensions will you slice first (endpoint, region, dependency, tenant)?”
 
 ---
 
@@ -88,17 +92,18 @@ Objective: design controls that stop a slowdown from becoming an outage:
 - Breaker without half-open probes
 - No isolation (one dependency saturates everything)
 - No clear degraded behavior
+- Looking at averages only and missing localized tail latency
 
 ---
 
 ---
 
-# Session 2 — Exercise 1 Answer Sheet (Share After)
+# Session 2 — Exercise 1 Model Answer (Share After)
 Reference solution (illustrative). What matters: prevent **resource retention** and **retry amplification**; contain blast radius; degrade intentionally.
 
 ---
 
-## A) Timeouts + controlled retry (example)
+## A) Timeouts + Controlled Retry (example)
 **Timeouts:** explicit budgets. Example end-to-end 800ms; A→B 200ms, A→C 250ms, A→D 200ms (leave margin).  
 **Controlled retry (transient only):**
 - max 2 attempts total (1 retry)
@@ -110,7 +115,7 @@ Reference solution (illustrative). What matters: prevent **resource retention** 
 
 ---
 
-## B) Circuit breaker + bulkheads (example)
+## B) Circuit Breaker + Bulkheads (example)
 **Breaker for C:**
 - trip on timeout rate or high latency (e.g., >30% timeouts over 10s)
 - open 30–60s cooldown
@@ -122,7 +127,7 @@ Reference solution (illustrative). What matters: prevent **resource retention** 
 
 ---
 
-## C) Degrade + shed load (example)
+## C) Degrade + Shed Load (example)
 **Degrade:** return cached/stale or partial response with a clear flag; if none, fail fast with 503 + Retry-After.  
 **Load shedding:** cap concurrency/queue depth; reject early when saturation triggers.
 
@@ -134,5 +139,7 @@ Reference solution (illustrative). What matters: prevent **resource retention** 
 - retry rate (watch amplification)
 - saturation (thread/conn pools, queue depth)
 - breaker state
+
+Read these both ways: check each signal individually, then interpret them together as one system story.
 
 ---

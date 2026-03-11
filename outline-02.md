@@ -186,7 +186,7 @@
 
 ### Slide 5 — Controlled retry: when, what, and how
 
-* **Slide Title:** Controlled Retry (Not “Just Retry”)
+* **Slide Title:** Controlled Retry (Not “Blind Retry”)
 * **Subtitle / key message:** *Retry is a tool; uncontrolled retry is a failure multiplier.*
 * **Slide contents:**
 
@@ -206,6 +206,106 @@
 * “Avoid persistent failures: validation/4xx, known-down dependencies.”
 * “Bound attempts, use exponential backoff + jitter—this is exactly what our whitepaper recommends.” 
 * “And link to Session 1: safe retry requires idempotency; otherwise you create duplicates.” 
+
+---
+
+### Slide 5.1 — Exponential backoff + jitter (quick explainer)
+
+* **Slide Title:** Exponential Backoff + Jitter in 60 Seconds
+* **Subtitle / key message:** *Spread retries over time so many clients do not retry at once.*
+* **Slide contents:**
+
+  * Why exponential backoff:
+
+    * each retry waits longer than the previous one
+    * gives the dependency time to recover
+  * Why jitter:
+
+    * add randomness so clients do not synchronize retries (thundering herd)
+  * Simple formula:
+
+    * `delay = random(0, min(cap, base * 2^attempt))`
+  * Example (base `100ms`, cap `2s`, max attempts `3`):
+
+    * attempt 1: `0-200ms`
+    * attempt 2: `0-400ms`
+    * attempt 3: `0-800ms`
+  * Tiny pseudocode:
+
+    ```text
+    for attempt in 1..maxAttempts:
+      resp = call()
+      if success(resp): return resp
+      if not retryable(resp): break
+      sleep(random(0, min(cap, base * 2^attempt)))
+    return failure
+    ```
+
+* **Diagram / illustration (optional):**
+
+  ```mermaid
+  sequenceDiagram
+    participant C as Client
+    participant S as Service
+    C->>S: Request #1
+    S-->>C: Timeout/5xx
+    Note over C: wait random(0..200ms)
+    C->>S: Retry #1
+    S-->>C: Timeout/5xx
+    Note over C: wait random(0..400ms)
+    C->>S: Retry #2
+    S-->>C: 200 OK
+  ```
+
+* **Speaker notes:**
+
+* "Backoff alone spaces retries for one client; jitter prevents many clients from retrying at the same instant."
+* "Use bounded attempts plus a capped delay; retry only transient errors."
+* "This is risk reduction, not a guarantee: correctness still depends on idempotency (Session 1)."
+
+---
+
+### Slide 5.2 — Bad vs Good Retry Pattern (visual compare)
+
+* **Slide Title:** Fixed Retry vs Backoff + Jitter
+* **Subtitle / key message:** *Same retry count, very different system impact.*
+* **Slide contents:**
+
+  * Bad (fixed interval, no jitter):
+
+    * every client retries at the same cadence (for example, every `200ms`)
+    * retries line up and create traffic spikes
+  * Good (exponential backoff + jitter):
+
+    * retry delays spread out over time
+    * load is smoother, dependency gets recovery time
+  * Keep both bounded:
+
+    * max attempts
+    * max delay cap
+
+* **Diagram / illustration (optional):**
+
+  ```mermaid
+  flowchart LR
+    subgraph Bad[Bad: fixed interval, no jitter]
+      B1[Client A retry at 200ms] --> T1[Spike]
+      B2[Client B retry at 200ms] --> T1
+      B3[Client C retry at 200ms] --> T1
+    end
+
+    subgraph Good[Good: backoff + jitter]
+      G1[Client A retry at 180ms] --> S1[Smoother load]
+      G2[Client B retry at 310ms] --> S1
+      G3[Client C retry at 520ms] --> S1
+    end
+  ```
+
+* **Speaker notes:**
+
+* "Bad retry is synchronized; good retry is staggered."
+* "Jitter does not reduce total retries by itself, but it prevents synchronized spikes."
+* "Pair this with timeouts and circuit breakers to avoid retry amplification."
 
 ---
 
@@ -278,6 +378,7 @@
 * **Diagram / illustration (optional):** “critical path” kept, “nice-to-have” dropped.
 * **Speaker notes:** Make this practical: “What’s your service’s ‘must keep’ behavior?”
 
+* "When systems are overloaded, something must give. The real question is what — and who decides."
 * “In overload, doing less is how you survive.”
 * “Load shedding: reject early before you saturate deeper layers—rate limits, queue caps, concurrency limits.”
 * “Degradation: cached/stale, partial results, or a clear ‘try later’ response.”
@@ -398,11 +499,16 @@
   * Traffic: RPS, concurrency
   * Errors: rate + type
   * Saturation: CPU, memory, queue depth, thread pool, connection pool
+  * Important: monitor each signal individually, then interpret them together as one system story.
+  * Important: do not rely on overall averages alone. Slice metrics by dimensions such as endpoint, region, dependency, and tenant.
 * **Diagram / illustration (optional):** Dashboard sketch with the four.
 * **Speaker notes:** Emphasize: “Latency ↑ with errors flat is common—don’t wait for errors.”
 
 * “These four signals catch most incidents early: latency, traffic, errors, saturation.”
-* “Important: latency can spike while errors stay flat—don’t wait for 500s.”
+* “Quick definition: p50 is the median (typical) latency; p95 means 95% of requests are faster than this value, and the slowest 5% are slower.”
+* “Do not read metrics in isolation. Check each signal, then combine them to understand what is happening.”
+* “Example patterns: latency up + errors flat can be an early slowdown; traffic up followed by latency up can indicate overload.”
+* “Act on these early patterns before explicit failures (such as 500s) appear.”
 * “Always slice by dimensions: endpoint, region, dependency, tenant—otherwise averages hide pain.”
 
 ---
@@ -443,7 +549,7 @@
 
 * “Traces show where time went across services—especially for p95/p99.”
 * “They make parallel vs sequential visible: critical path vs parallel spans.”
-* “Great for questions like: ‘Which dependency added p95?’ and ‘Is the delay queueing or network or downstream compute?’”
+* “Great for questions like: ‘which downstream service contributed most of that delay?’ and ‘Is the delay queueing or network or downstream compute?’”
 
 ---
 

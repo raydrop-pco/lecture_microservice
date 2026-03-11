@@ -15,13 +15,16 @@ Use the funnel: **metrics → slice → traces → logs → mitigation**.
 ## Part A — Start with metrics (10 min)
 1) Which **golden signals** do you check first? List top 3 graphs.  
 2) What **dimensions** do you slice by? (endpoint, region, instance, dependency, tenant…)
+3) What does p95 mean in this incident context, and why is p50 alone not enough?
+
+Important: check each signal individually, then combine them to determine the most likely failure mode.
 
 ---
 
 ## Part B — Use traces (10 min)
-3) What trace question are you trying to answer?  
+4) What trace question are you trying to answer?  
    Example: “Which span dominates the critical path at p95?”  
-4) If dependency C is slow, what do you inspect next?
+5) If dependency C is slow, what do you inspect next?
 - retries?
 - queueing/wait time?
 - near-timeout behavior?
@@ -29,7 +32,7 @@ Use the funnel: **metrics → slice → traces → logs → mitigation**.
 ---
 
 ## Part C — Confirm with logs (8 min)
-5) What log fields do you need to confirm quickly?
+6) What log fields do you need to confirm quickly?
 - trace_id/request_id
 - dependency
 - timeout vs error
@@ -41,7 +44,7 @@ Use the funnel: **metrics → slice → traces → logs → mitigation**.
 ---
 
 ## Part D — Mitigate (5 min)
-6) Choose one mitigation and justify:
+7) Choose one mitigation and justify:
 - shed load
 - open breaker
 - disable feature / degrade
@@ -53,7 +56,7 @@ Use the funnel: **metrics → slice → traces → logs → mitigation**.
 
 ---
 
-# Session 2 — Exercise 2 Facilitator Cheat Sheet
+# Session 2 — Exercise 2 Facilitation Guide
 Objective: practice a calm, repeatable debugging funnel and choose mitigations that reduce impact quickly (without worsening resource retention).
 
 ---
@@ -72,6 +75,8 @@ Objective: practice a calm, repeatable debugging funnel and choose mitigations t
 - “Which dependency’s p95 changed?”
 - “Do traces show queueing vs downstream compute vs retries?”
 - “What’s the fastest safe mitigation?”
+- “Which dimension slice reveals where customer pain is concentrated?”
+- “What pattern do the four signals tell together, not individually?”
 
 ---
 
@@ -95,6 +100,7 @@ Reference: method > exact root cause. Show the funnel.
 - Slice by endpoint/region/dependency
 - Check dependency C latency + timeout rate
 - Check retry rate (amplification indicator)
+- Interpret signals together (latency, traffic, errors, saturation) before jumping to a cause.
 
 ---
 
