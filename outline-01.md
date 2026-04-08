@@ -89,6 +89,31 @@
 
 ## Session 1 Slide Outline (Lecture Part)
 
+### Slide - Cover
+**Speaker notes:**
+* "Welcome to Session 1 of Microservices 101."
+* "Today is about correctness under retries and asynchronous processing: idempotency plus eventual consistency."
+* "IDEMPOTENCY = Doing something many times has the same effect as doing it just once."
+* "Eventual Consistency = Everything stays in sync, just not immediately, it takes a little time."
+
+---
+
+### Slide: Introduction of This Series
+
+**Slide Title:** Microservices 101 series
+**Slide contents**
+* 101-01 Idempotency & Eventual Consistency - Safe Retries and Async Systems –
+* 101-02 Resilience & Observability - Design for Failure and Debug Fast -
+
+**Speaker notes:**
+
+* "This series has two connected parts."
+* "Session 1 focuses on correctness: how to avoid duplicates and design around eventual consistency."
+* "Session 2 focuses on stability and diagnosis: containing failures and finding root causes quickly."
+* "The sequence is intentional: resilience controls are most effective after correctness foundations are in place."
+
+---
+
 ### Slide: Agenda
 
 **Slide Title:** Agenda
@@ -129,9 +154,12 @@
 
 **Speaker notes**
 
-* “This is practical production hygiene, not academic distributed systems.”
-* “Failures and retries are normal; our job is to make retries harmless.”
-* “Transition: quick incident story that shows why this matters.”
+* “This is practical production hygiene, not academic distributed systems theory.”
+* “In real systems, retries are unavoidable: clients retry, gateways retry, and queues redeliver. So duplicates are a design input, not an edge case.”
+* “Idempotency gives us correctness under retry: same intent should converge to the same business outcome.”
+* “Eventual consistency gives us the async reality: state may be temporarily out of sync, but should converge predictably.”
+* “By the end of this session, you should be able to design retry-safe operations and explain temporary inconsistency without panic.”
+* “Transition: let’s ground this with a simple incident story where one timeout caused duplicate side effects.”
 
 ---
 
@@ -220,6 +248,7 @@
 
 * Return original success (same `order_id`)
 * Or return “still processing” with a stable status link
+* Or return “something wrong, your request has been canceled”
 
 **Avoid**
 
@@ -228,9 +257,12 @@
 
 **Speaker notes**
 
-* “Replay behavior should be boring and deterministic: same key, same outcome.”
-* “Either replay the original response, or return the same stable `order_id`/`job_id`.”
-* “Transition: the same idea applies on the consumer side too.”
+* “Rule of thumb: replay should be boring and deterministic. Same idempotency key, same logical result.”
+* “Preferred option one: return the original success response, including the same `order_id`.”
+* “Preferred option two: if work is still in progress, return a stable in-progress response with the same `order_id` or `status_url`.”
+* “If the request reaches a terminal failure state, return a consistent canceled/failed response for replays instead of retrying side effects again.”
+* “What we must avoid: creating a new resource or returning a different outcome for the same key, because that breaks retry safety.”
+* “Transition: this same determinism principle also applies on the consumer side.”
 
 ---
 
