@@ -27,7 +27,7 @@ Rather than overwhelming you with a comprehensive list of implementation details
 | :--- | :--- | :--- |
 | **[101-01]** | **Idempotency & Consistency** | Staying correct under retries, duplicates, and lag. |
 | **[101-02]** | **Resilience & Observability** | Containing failure and reducing MTTR in distributed calls. |
-| **[101-03]** | **Data Boundaries & Ownership** | Living without shared schemas and cross-service joins. |
+| **[101-03]** | **Data Boundaries & Ownership** | Own the domain and move data safely. |
 | **[101-04]** | **Workflows & Messaging** | Moving from jobs/batch to event-driven chains safely. |
 | **[101-05]** | **API Evolution** | Evolve contracts without breaking consumers (expand/contract + compatibility rules). |
 | **[101-06]** | **Deployment Safety** | Shipping changes safely with canary/blue-green, flags, and rollbacks. |

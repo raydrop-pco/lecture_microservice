@@ -1,4 +1,4 @@
-# Session 3 (2h): Data Modeling & Storage Patterns
+# Session 3 (2h): Data Boundaries & Ownership
 
 ## Outline
 
@@ -7,7 +7,7 @@
 * Understand the historical and cultural reasons why shared databases persist — even in teams that have already split their services.
 * Understand how shared databases create change/perf/ops coupling, and how data ownership boundaries isolate change.
 * Design transaction boundaries across services using outbox and inbox patterns.
-* Choose the right query pattern (API composition, CQRS-lite) when data lives in multiple services.
+* Choose the right query pattern (API composition, CQRS) when data lives in multiple services.
 
 ### Agenda (120 min)
 
@@ -22,7 +22,7 @@
 * Why the shared DB habit is so hard to break: historical context
   * Relational DB as the default for 40+ years — ACID is deeply trusted
   * Shared DB = shared truth: a cultural assumption, not just a technical one
-  * Materialized views/read replicas as “temporary compromise” that becomes permanent
+  * Read replicas as a “temporary compromise” that becomes permanent
   * The organizational pattern: one DBA team owns the DB, many app teams read from it
   * Why microservice extraction often stops at the service layer — the DB migration feels too risky
 * Coupling taxonomy:
@@ -67,7 +67,7 @@
 
 * API composition: orchestrate reads across services at the API layer
 * Frontend composition: sometimes the browser/mobile app performs the join
-* CQRS-lite: maintain a read-optimized projection from events/CDC
+* CQRS: maintain a read-optimized projection from events/CDC
 * Denormalization as a feature, not a bug: duplicate stable attributes to buy speed and decoupling
   * Rule of thumb: if data changes every second (stock level), query it; if it changes once a month (product name), duplicate it
 * How consumers realize upstream changes: subscribe to owner-service events
@@ -106,7 +106,7 @@
 * Master data diagnostic: "who is the system of record?" question checklist
 * Bounded-context data split template (columns → owner → API surface)
 * Outbox table schema + relay pseudocode
-* Query pattern comparison table (API composition vs CQRS-lite vs shared read replica)
+* Query pattern comparison table (API composition vs CQRS vs shared read replica)
 * Rules-of-thumb checklist (ownership, joins, outbox, projections, migration)
 * Schema migration playbook (expand/contract steps)
 
@@ -114,14 +114,29 @@
 
 ## Session 3 — Slide Outline (Lecture Part)
 
-### Slide — Cover
+### Slide 1 — Cover
 
-**Slide Title:** Microservices 101 - Session 3: Data Modeling & Storage Patterns
+**Slide Title:** Microservices 101-03: Data Boundaries & Ownership - Own Domain and Move Data Safely -
 **Slide contents:**
 * (Speaker introduces the session, title slide only)
 
 **Speaker notes:**
+(none)
 
+---
+
+### Slide 2 — Introduction of This Series
+
+**Slide Title:** Microservices 101 series
+**Slide contents:**
+* 101-01 Idempotency & Eventual Consistency — Safe Retries and Async Systems
+* 101-02 Resilience & Observability — Design for Failure and Debug Fast
+* **101-03 Data Boundaries & Ownership — Own the domain and move data safely**
+* 101-04 API Design for Evolution — Contracts and Backward Compatibility
+* 101-05 Messaging & The "Buy vs. Build" Lever — Async Communication
+* 101-06 Production Safety & Multi-Tenancy — Feature Flags and Isolation
+
+**Speaker notes:**
 * "Session 1 was correctness under retries: idempotency and eventual consistency."
 * "Session 2 was stability and diagnosability: resilience controls and observability."
 * "Session 3 is about data: where it lives, who owns it, and how to move it reliably across service boundaries."
@@ -129,25 +144,7 @@
 
 ---
 
-### Slide — Introduction of This Series
-
-**Slide Title:** Microservices 101 series
-**Slide contents:**
-* 101-01 Idempotency & Eventual Consistency — Safe Retries and Async Systems
-* 101-02 Resilience & Observability — Design for Failure and Debug Fast
-* **101-03 Data Modeling & Storage Patterns — Boundaries and Eventual Reads**
-* 101-04 API Design for Evolution — Contracts and Backward Compatibility
-* 101-05 Messaging & The "Buy vs. Build" Lever — Async Communication
-* 101-06 Production Safety & Multi-Tenancy — Feature Flags and Isolation
-
-**Speaker notes:**
-* "Here is where we are in the series. The first two sessions laid a foundation for correctness and stability."
-* "Session 3 takes us into the deeper architectural challenges: owning data safely and effectively."
-* "The following sessions (101-04 to 101-06) will build on this data baseline to cover API evolution, deeper messaging, and shipping safely."
-
----
-
-### Slide — Agenda
+### Slide 3 — Agenda
 
 **Slide Title:** Agenda
 **Slide contents:**
@@ -163,17 +160,17 @@
 
 **Speaker notes:**
 
-* "Two halves today: ownership and isolation (DB-per-service, schema), then change propagation and read patterns (outbox, CDC, API composition, CQRS-lite)."
+* "Two halves today: ownership and isolation (DB-per-service, schema), then change propagation and read patterns (outbox, CDC, API composition, CQRS)."
 * "Exercises are hands-on design: first split the master table by ownership, then design end-to-end change propagation from write to projection update."
 * "The operational checklist moves to the handout so the wrap-up can stay focused on three takeaways."
 * "Transition: let's set the goal for what you should be able to do by the end."
 
 ---
 
-### Slide 1 — Title
+### Slide 4 — Title
 
-**Slide Title:** Data Modeling & Storage Patterns
-**Subtitle / key message:** *Own your data. Move it reliably. Query it without re-coupling.*
+**Slide Title:** Data Boundaries & Ownership
+**Subtitle / key message:** *Own the domain and move data safely.*
 
 **Slide contents:**
 
@@ -195,145 +192,387 @@
 
 ---
 
-### Slide 2 — Hook: The Last Shared Wire
+### Slide 5 Dividor - Data Boundaries
 
-**Slide Title:** The Database Is Often the Last Shared Wire
-**Subtitle / key message:** *Separate deploys, shared schema — still one monolith at the data layer.*
+---
+
+### Slide 6 — Hook: The "Independent Tables" Pitfall
+
+**Slide Title:** The "Independent Tables" Pitfall
+**Subtitle / key message:** *True independence isn't just about table names; it's about transaction boundaries.*
 
 **Slide contents:**
 
-**Why this feels attractive**
+```plantuml
+@startuml
+skinparam defaultFontName Arial
+skinparam BackgroundColor transparent
 
-* **Strong consistency:** after a successful write, every read sees the latest committed data
-* RDB products reinforced this with ACID transactions, foreign-key restrictions, and transaction coordination features
-* Shared DB makes this easy to assume across modules
+participant "API Gateway\n(Checkout)" as API
+participant "Order\nService" as ORD
+participant "Inventory\nService" as INV
+participant "Billing\nService" as BILL
 
-**What changes in distributed systems**
+box "Shared RDBMS" #LightCyan
+database "orders" as DB_O
+database "inventory_levels" as DB_I
+database "payments" as DB_B
+end box
 
-* **Eventual consistency:** different services, replicas, and projections may observe the new value at different times
-* They should converge, but not necessarily immediately
+note over API, DB_B
+  "We don't share data! Each service has its own table!"
+end note
 
-* Services deployed independently ✓
-* APIs versioned and contracts defined ✓
-* Database: still one shared schema ✗
-* Result:
-  * Schema change in Service A breaks Service B
-  * A table join couples two services at query time
-  * A FK constraint enforces runtime dependency
-  * Any migration requires coordinated deployment across teams
+group Global Transaction (Shared Connection / 2PC)
+  API -> ORD : create_order()
+  ORD -> DB_O : INSERT
+  
+  API -> INV : reserve_stock()
+  INV -> DB_I : UPDATE
+  
+  API -> BILL : charge_account()
+  BILL -> DB_B : INSERT
+end
+
+note over API, DB_B
+  The compute is split, but they still act as one monolith
+  tied together by a shared synchronous transaction.
+end note
+@enduml
+```
+
+**Speaker notes:**
+
+* "This is one of the most common pitfalls I see. Teams split the compute layer, but keep the database. To justify it, they say: 'We just use separate tables!'"
+* "But if you look at their code, they wrap API calls to those tables in a single database transaction."
+* "This means the system still relies on global strong consistency provided by the RDB. If any table's rules change, or the DB locks up during a commit, the entire macro-operation fails."
+* "This is exactly what holding onto the shared database looks like in practice."
+
+---
+
+### Slide 7 — The Strong Consistency World
+
+**Slide Title:** The Strong Consistency World
+**Subtitle / key message:** *Why we cling to the shared database: strong consistency feels safe.*
+
+**Slide contents:**
+
+* **The Promise:** Every read sees the latest write instantly.
+* **The 40-Year Habit:** RDBMS tools taught us to rely on the database for safety.
+  * ACID Transactions
+  * Foreign Key Constraints
+  * Cross-Table Coordination
+* **The Trap:** We became structurally dependent on the DB engine to enforce cross-domain business rules.
 
 **Speaker notes:**
 
 * "Before we talk about ownership, it's worth naming what the shared database gives people psychologically: strong consistency feels immediate and easy to reason about."
-* "Quick contrast: strong consistency means once a write is committed, every subsequent read sees that latest value. Eventual consistency means different readers may observe the change at different times, but the system converges."
-* "RDB products made that world extremely powerful: ACID transactions, foreign-key restrictions, and sometimes 2PC/XA-style coordination let applications rely on one strongly consistent source of truth."
-* "Because those features worked so well, many applications became structurally dependent on them. That's one of the root causes of the monolith database pattern."
-* "That tradeoff matters here because DB-per-service often means giving up the illusion that every part of the system can read one perfectly current shared truth at all times."
-* "We've already introduced eventual consistency earlier in the series; here we connect it directly to the data ownership problem."
-* "Teams often extract services successfully but leave the database shared for 'just a little while.' That little while becomes permanent."
-* "Shared schema means shared deployment risk: you cannot change a column without checking every service that reads it."
-* "Foreign keys and joins are a sign that two services are actually one service pretending to be two."
-* “Transition: before we talk about the fix, let’s understand *why* this pattern is so persistent — it has deep historical roots.”
+* "RDB products made that world extremely powerful, and because those features worked so well, many applications grew to depend on them."
+* "The transaction hook we saw in the previous slide? That's a direct attempt to hold onto this strong consistency world, even after the services were split."
 
 ---
 
-### Slide 3 — Why the Shared DB Habit Persists
+### Slide 8 — The Distributed World
 
-**Slide Title:** Why the Shared DB Habit Is Hard to Break
-**Subtitle / key message:** *This is not just a technical problem. It’s a 40-year default being questioned.*
-
-**Slide contents:**
-
-**The historical default**
-
-* Relational databases have been the dominant storage layer since the 1980s
-* ACID transactions gave teams a trusted, single source of truth
-* Foreign keys, constraints, and transaction coordination features made cross-module consistency easy to enforce in one place
-* “Put everything in one DB” was the correct, proven answer for decades
-* The DBA role emerged around protecting and optimizing that central database
-
-**How organizations adapted**
-
-* One central DB → managed by a central DBA team
-* Many application teams → all read from (and often write to) the same DB
-* Joins, views, and stored procedures became the integration layer between teams
-* Materialized views and read replicas added as “good enough” performance fixes
-
-**What microservices ask you to undo**
-
-* Microservices challenge the “shared truth” model at its foundation
-* The ask: give up cross-service joins, give up FK guarantees across teams, give up the central authority
-* For many builders, that feels like giving up correctness — not gaining it
-
-**Why teams stop halfway**
-
-* Service extraction is visible and concrete (deploy boundary, API, team ownership)
-* DB migration is risky, invisible to users, and easy to defer
-* “We’ll split the DB later” → later never comes
-* Materialized views, shared read replicas, and cross-schema joins become permanent fixtures
-
-**The real blocker is often cultural**
-
-* Trust in the relational DB as the arbiter of truth is deeply ingrained
-* Teams that share a DB implicitly share responsibility — and blame
-* DB-per-service requires teams to trust each other’s APIs instead of each other’s tables
-* This is a culture and ownership shift, not just a tooling change
-
-**Speaker notes:**
-
-* “Before we talk about DB-per-service, I want to acknowledge why it’s hard — and why most teams haven’t done it yet.”
-* “The shared DB is not a mistake. It was the right answer for 40 years. ACID transactions, relational integrity, SQL — these are genuinely powerful tools.”
-* “And because those tools were so powerful, many systems grew around them: foreign keys across modules, one transaction spanning many business concerns, sometimes even distributed transaction managers. That technical success created organizational dependence.”
-* “What changed is scale, team autonomy, and deployment independence. Those pressures expose the hidden cost of shared ownership.”
-* “The hardest part is cultural: in a shared DB world, the database is the authority. Every team trusts the same tables. Splitting that means trusting APIs — and the teams behind them — instead.”
-* “I’ve seen teams extract 10 services and still share one database. Not because they didn’t know better, but because the DB migration felt riskier than the payoff was clear.”
-* “The goal of this session is to make the payoff clear — and give you a concrete, low-risk path to start the split.”
-* “Transition: now let’s look at what the ownership model looks like when you do make the move.”
-
----
-
-### Slide 4 — DB-per-Service Principle
-
-**Slide Title:** DB-per-Service: One Owner, One Schema
-**Subtitle / key message:** *If two services share a DB, they share deployment risk.*
+**Slide Title:** What Changes in the Distributed World
+**Subtitle / key message:** *Separate deploys, shared schema — still one monolith at the data layer.*
 
 **Slide contents:**
 
-* Rule: each service owns its own database (or schema/namespace)
-* Only the owning service reads or writes its tables directly
-* Other services access data through the service's API, not directly through the DB
-* Once services can use different storage technologies, cross-service JOIN is no longer a safe or portable assumption
-* Benefits:
-  * Independent schema evolution
-  * Independent scaling and storage choices
-  * Clear blast radius: a broken migration affects one service, not all
+```plantuml
+@startuml
+skinparam defaultFontName Arial
+skinparam BackgroundColor transparent
 
-**Diagram / illustration (optional):**
+participant "API Gateway\n(Checkout)" as API
+participant "Order\nService" as ORD
+participant "Inventory\nService" as INV
+participant "Billing\nService" as BILL
 
-```
-Service A ──► DB-A (tables: orders, order_items)
-Service B ──► DB-B (tables: inventory, stock_movements)
-Service C ──► API call ──► Service A (never direct DB-A access)
+box "Shared RDBMS" #LightCyan
+database "orders" as DB_O
+database "inventory_levels" as DB_I
+database "payments" as DB_B
+end box
+
+group Tx 1: Order Service
+  API -> ORD : create_order()
+  ORD -> DB_O : INSERT ✅ COMMIT
+end
+
+group Tx 2: Inventory Service
+  API -> INV : reserve_stock()
+  INV -[#red]->x DB_I : UPDATE ❌ FAIL\n(out of stock)
+end
+
+note over API : Saga: compensation required
+
+group Compensation: Order Service
+  API -> ORD : cancel_order()
+  ORD -> DB_O : UPDATE status='cancelled' ✅
+end
+
+note over API, DB_B
+  Billing is never called.
+  Each service commited (or rolled back) independently.
+  No global transaction. No shared lock.
+end note
+@enduml
 ```
 
 **Speaker notes:**
 
-* "DB-per-service is a principle, not a physical server requirement. It can mean separate logical schemas on the same host — but the ownership rule is strict."
-* "The enforcement point is access: no service may issue a SQL query against another service's tables."
-* "Another reason this matters: over time, many purpose-specific databases emerged. The moment one service uses a different storage engine, the old assumption of 'we can always join later in SQL' stops being true."
-* "Think of the database schema as part of the service's private implementation, not a shared contract."
-* "Transition: if you can't join, how do you relate data across services? Reference by ID."
+* "This is what the distributed world actually looks like. Each service manages its own transaction boundary — it commits or rolls back independently."
+* "Notice we still use one shared database here — the difference is not where the tables live, but that each service opens and closes its own transaction without involvement from the others."
+* "When Inventory fails, Billing is never called. Order needs to be compensated — cancelled. This is the Saga pattern we covered in Session 1."
+* "Your first reaction is probably: 'This is so much more complicated than just wrapping it all in one transaction!' — and you're right."
+* "Hold that thought. The next slide explains why teams choose to carry this complexity anyway."
 
 ---
 
-### Slide 5 — Reference by ID, Not by Join
+### Slide 9 — Why Accept the Complexity?
+
+**Slide Title:** So Why Accept All This Complexity?
+**Subtitle / key message:** *Because the alternative scales badly and breaks teams.*
+
+**Slide contents:**
+
+| Shared Transaction | Independent Boundaries |
+|---|---|
+| Simple to write | Hard to undo at scale |
+| One team's migration breaks everyone | Each team deploys independently |
+| DB is the authority | API is the contract |
+| Scale the whole DB together | Scale each service separately |
+| One failure cascades | Blast radius is contained |
+
+**Speaker notes:**
+
+* "You just saw that the distributed world is more complicated. Let me be direct about why teams still choose it."
+* "With a shared DB, one team's late-night migration breaks everyone. One batch job locks a table your payment flow depended on."
+* "At small scale, the simplicity wins. But as teams and traffic grow, the coupling becomes the bottleneck — not the features."
+* "The goal is not to make things complicated. The goal is to make each service's blast radius small enough that one team's bad day doesn't become everyone's."
+* "But here is the catch: you cannot build an isolation if you don't know where the business boundary is. If you just separate tables based on technical convenience, you're just moving the coupling, not removing it."
+* "Transition: To find the right boundary, we have to stop looking at our database schemas and start looking at the business itself. We need to look at Domains."
+
+### Slide 10 — Domain Boundary = Data Boundary
+
+**Slide Title:** Domain Isolation: Data Follows the Business
+**Subtitle / key message:** *Microservices model Domain Knowledge, not just Data Structures.*
+
+**Slide contents:**
+
+* **The Shift in Perspective:**
+  * **Traditional (RDBMS)**: Group data by normalization, keys, and structural convenience.
+  * **Microservices (Domain)**: Group data by behavior, lifecycle, and business ownership.
+* **What is a "Domain Boundary"?**
+  * It is a "Sphere of Knowledge" where one team has the authority to change rules.
+  * The database is a persistent side effect of this knowledge—not the starting point.
+* **The Transaction as a Guardian:**
+  * Transactions protect **Business Invariants** (rules that must always be true).
+  * If two pieces of data must be consistent in real-time, they are part of the *same* Domain.
+
+**Speaker notes:**
+
+* "We need to get back to the core of microservices: they represent business domains, not just web servers."
+* "The problem we face is often that we model the *data structure* (the entity 'Product') rather than the *domain behavior* (the act of 'Selling' vs. 'Counting Stock')."
+* "Stop thinking about 'splitting tables.' Start thinking about 'carving out spheres of knowledge.' A domain boundary is the line where one team has total autonomy over their rules."
+* "The transaction is the technical enforcement of that boundary. It protects the rules that must never be broken within that domain. If a rule has to cross a transaction, it's no longer a rule—it's a workflow process."
+* "Transition: When we forget this and try to put everything 'Product-related' into one place because it 'looks the same,' we fall into the Master Data trap."
+
+---
+
+### Slide 11 — The Master Data Trap
+
+**Slide Title:** The Master Data Trap
+**Subtitle / key message:** *The "Everything Table" is where ownership goes to die.*
+
+**Slide contents:**
+
+* **The question teams always ask:**
+  * "We're splitting services. Which service should own the `products` table?"
+  * "Should Customer Master live in the User Service or the CRM?"
+* **The diagnostic question to ask back:**
+  * "Does your company have a single business team whose job is to maintain every attribute of a product?"
+  * The answer is almost always **No**.
+* **Why large master tables accumulate:**
+  * No clear owner → Everyone adds columns, nobody deletes them.
+  * Shared dependency → One team's migration risk is shared by all.
+  * Structural convenience → "It's all product-related, so it should be in one table."
+
+**Speaker notes:**
+
+* "This is the question I'm asked most often in microservice migrations: 'which service should own the Product Master?'"
+* "My first answer is always: 'does your company have a single team whose job is to maintain product data?' — not just use it, but *maintain* it as their primary business function."
+* "If the answer is No — and it almost always is — then the monolith `products` table isn't just a technical problem; it's a model of a business function that doesn't actually exist in your company."
+* "It grew because every team added the columns they needed. Nobody truly owns the integrity of the whole row, but everybody is highly dependent on it."
+* "SQL JOINs and database-level materialized views traditionally helped us turn a blind eye to this missing ownership. In a microservices world, where boundaries are explicit, you can no longer ignore it."
+
+---
+
+### Slide 12 — Bounded Context: Thinking in Domains
+
+**Slide Title:** Bounded Context: Thinking in Domains
+**Subtitle / key message:** *A "Product" is not a row; it is a collection of business functions.*
+
+**Slide contents:**
+
+* **The Bounded Context Lens:**
+  * "Product" means something different to each service:
+  
+  | Domain | What it cares about |
+  |---|---|
+  | **Catalog** | name, description, images, categories |
+  | **Pricing** | list price, discount rules, currency |
+  | **Inventory** | SKU, stock level, warehouse location |
+  | **Logistics** | weight, dimensions, hazmat flags |
+  | **Finance** | tax class, cost price, accounting code |
+
+* **The Result:**
+  * Each domain owns and maintains its own specific slice of the "Product."
+  * No single service "owns the product" entity—they own the **Domain Attributes**.
+  * **Autonomy realized**: Catalog can change a description without checking with Finance or Logistics.
+
+**Speaker notes:**
+
+* "The fix is Bounded Context thinking. We stop trying to find a home for the 'Product row' and start finding homes for 'Product Attributes' based on who creates and uses them."
+* "In this world, 'Product' isn't a single thing; it's a concept that spans multiple domains. Each domain is the absolute authority over its own attributes."
+* "The practical test for a healthy boundary: Can a team change their columns without coordinating with anyone else? If not, you haven't split the domain; you've just split the table."
+* "Transition: let's make this concrete with Exercise 1. We're going to take a real master table and try to find the hidden boundaries inside it."
+
+---
+
+### Slide 13 - Exercise 1
+
+**Slide Title:** Exercise 1
+**Slide contents:** (divider)
+
+---
+
+**Facilitation Guide:** See `session03-exercise1.md` for full worksheet, model answers, and debrief prompts.
+
+**Timing:** 25–30 min  
+**Structure:**
+* Part A (10 min): Diagnose ownership for 6 column groups (Presentation, Pricing, Stock, Logistics, Financial, Metadata)
+* Part B (10 min): Design service schemas and APIs
+* Part C (8 min): Resolve hard cases (status, SKU, created_at, product detail page)
+* Part D (bonus, 5 min): Migration path
+
+**Speaker notes — Opening the exercise:**
+
+* "You inherit a shared `products` table with ~60 columns. Five services (Catalog, Pricing, Inventory, Shipping, Finance) all write to the same table. There's no dedicated 'product team.'"
+* "Your job: assign ownership to each column. Decide which service is the system of record for each piece of data."
+* "The hard part: some columns could belong to multiple teams. Your task is to make that explicit and choose."
+* "Reference: the full schema is in the Appendix of the worksheet."
+
+**Key teaching moment:**
+
+> "The diagnostic question: Can you name a specific business role responsible for this column? If not, it doesn't belong in a single table."
+
+**Common pitfall to watch for:**
+
+* Groups often keep related columns together (e.g., "all financial stuff goes to Finance") instead of asking *who changes this*.
+* Redirect: "Does Finance *create* this data, or do they just *read* it for reporting?"
+
+**After Part C (transition to next slides):**
+
+* "Exercise 1 solved the ownership question. But now you face three new problems: How do you read across services? How do you keep data in sync? How do you notify consumers of changes?"
+* "That's what Slides 14–18 and Exercise 2 address."
+
+---
+
+### Slide 14 Divider - Data on the Move
+
+---
+
+### Slide 15 — Bridge: From Product Master to Owned Data
+
+**Slide Title:** Before: Shared Product Master
+**Subtitle / key message:** *Five services are split in code, but still tightly coupled in data.*
+
+**Slide contents:**
+
+**Before (shared product master)**
+
+```plantuml
+@startuml
+left to right direction
+skinparam BackgroundColor transparent
+
+rectangle "Catalog Service" as C
+rectangle "Pricing Service" as P
+rectangle "Inventory Service" as I
+rectangle "Shipping Service" as S
+rectangle "Finance Service" as F
+database "products master" as PM
+
+C --> PM
+P --> PM
+I --> PM
+S --> PM
+F --> PM
+@enduml
+```
+
+**Speaker notes:**
+
+* "This is the current-state anti-pattern: one product master table touched by all five services."
+* "Even if services are separately deployed, data ownership is still shared, so change risk is shared."
+* "Keep this picture in mind as the baseline. Next slide shows the target shape without changing the 5-service scenario."
+
+---
+
+### Slide 16 — Bridge: From Product Master to Owned Data
+
+**Slide Title:** After: Owned Product Data Model
+**Subtitle / key message:** *Same five services, explicit data ownership, and safer change boundaries.*
+
+**Slide contents:**
+
+**After (owned data model, still 5 services)**
+
+```plantuml
+@startuml
+left to right direction
+skinparam BackgroundColor transparent
+
+rectangle "Catalog" as C2
+rectangle "Pricing" as P2
+rectangle "Inventory" as I2
+rectangle "Shipping" as S2
+rectangle "Finance" as F2
+
+database "catalog_db.catalogs" as CDB
+database "pricing_db.prices" as PDB
+database "inventory_db.inventory_levels\ninventory_items" as IDB
+database "shipment_ops_db.shipments\nshipment_events" as SDB1
+database "product_logistics_db.product_shipping_profiles" as SDB2
+database "finance_db.product_costs" as FDB
+
+C2 --> CDB
+P2 --> PDB
+I2 --> IDB
+S2 --> SDB1
+S2 --> SDB2
+F2 --> FDB
+@enduml
+```
+
+**Speaker notes:**
+
+* "This is the target-state model from Exercise 1: each service owns its slice of product data."
+* "We intentionally keep Shipping as one service with two datastores: shipment operations and product logistics attributes."
+* "Now the ownership boundary is explicit, so we can discuss interaction boundaries: reference by ID, not by join."
+
+---
+
+### Slide 17 — Reference by ID, Not by Join
 
 **Slide Title:** Reference by ID, Not by Join
 **Subtitle / key message:** *IDs cross service boundaries. Joins do not.*
 
 **Slide contents:**
 
-* Replace cross-service FK with a stored ID
+* Replace cross-service join dependencies with a stored ID
 * Ownership stays with the source service
 * Consumers call the owning service to resolve the reference when needed
 
@@ -355,147 +594,16 @@ Order: { order_id: "ORD-1", product_id: "PROD-42", quantity: 2 }
 
 **Speaker notes:**
 
+* "In the exercise, you just split the tables. Now your SQL JOINs are broken. This is the fix."
 * "The ID is the contract. The owning service controls what it returns when you resolve that ID."
 * "This introduces a network call where there was a local join — that's intentional. The coupling was hidden in the join; now it's explicit."
+* "Common question: 'Can we keep querying directly like before?' — in a microservice setup, keep the ID locally and ask the owning service when you need details."
 * "Latency concern is real; we'll address it with query patterns (API composition, caching) later in this session."
-* "Transition: ownership also means owning schema change. Let's talk about safe migration."
+* "Transition: but splitting the data is just the beginning. It creates a brand new set of problems."
 
 ---
 
-### Slide 6 — Schema Ownership & Safe Migration (Expand/Contract)
-
-**Slide Title:** Schema Changes: Expand First, Contract Later
-**Subtitle / key message:** *Never remove a column while any consumer still reads it.*
-
-**Slide contents:**
-
-* Schema is a contract with all current consumers (even your own service's prior deploys)
-* Dangerous pattern: rename or drop a column in one deployment
-* Safe pattern — **expand/contract**:
-  1. **Expand:** add the new column; write to both old and new
-  2. **Migrate:** backfill old rows to new column
-  3. **Cut over:** update all reads to use new column
-  4. **Contract:** drop the old column after all consumers are updated
-* Never skip step 4 — schema debt accumulates fast
-
-**Speaker notes:**
-
-* "This is the same discipline you'd apply to a public API, but applied to your own DB schema — because your prior deploys are still a consumer during rolling updates."
-* "The danger is that a fast rename feels harmless in dev but breaks an older pod still in-flight during a rolling deploy."
-* "Automate the tracking: keep a migration status log so you know which old columns are safe to drop."
-* "Transition: the hardest ownership question in practice isn't 'how do we split?' — it's 'who actually owns this data?' Let's talk about master data."
-
----
-
-### Slide 7 — The Master Data Trap
-
-**Slide Title:** Who Owns the Product Master?
-**Subtitle / key message:** *If no business team owns it, the data model is wrong — not just the location.*
-
-**Slide contents:**
-
-**The question teams always ask**
-
-* "We're splitting services. Which service should own the `products` table?"
-* "Should Customer Master live in the User Service or the CRM?"
-
-**The diagnostic question to ask back**
-
-* "Does your company have a team whose job is to maintain product data as a business function?"
-* If yes → that team's tooling is the system of record. Build a Product Data Service around that business function.
-* If no → the monolith table is the wrong abstraction, not just the wrong location
-
-**Why large master tables accumulate**
-
-* Different teams needed different product attributes → they added columns to the shared table
-* Nobody owned the whole thing → nobody could safely remove anything
-* Cross-service joins and materialized views were added to serve each team's read needs
-* Result: a 60-column table where 5 services each use 10 different columns
-
-**The bounded-context lens**
-
-* "Product" means something different to each service:
-
-  | Service | What it cares about |
-  |---|---|
-  | Catalog / Search | name, description, images, categories, tags |
-  | Pricing | list price, discount rules, currency, promotions |
-  | Inventory | SKU, stock level, reorder threshold, warehouse |
-  | Shipping | dimensions, weight, hazmat flags, carrier rules |
-  | Tax / Finance | tax class, cost price, country of origin |
-
-* Each service owns and maintains its slice
-* No single service "owns the product" — the product is a collection of bounded contexts
-
-**What changes**
-
-* Instead of one `products` table → each service owns its domain columns
-* Cross-service reads use IDs to resolve the reference from the authoritative service
-* Attributes needed for performance in another context are denormalized (projected) via events
-
-**Speaker notes:**
-
-* "This is the question I'm asked most often in microservice migrations: 'which service should own the Product Master?'"
-* "My first answer is always: 'does your company have a team whose job is to maintain product data?' — not use it, but *maintain* it as a business function."
-* "If yes, that team and their tooling should be the system of record. You build a service around that business function."
-* "If no — and often the answer is no — then the monolith `products` table is the wrong model. It grew because every team added the columns they needed. Nobody owns it; everybody depends on it."
-* "The fix is bounded-context thinking: what does 'product' mean to Catalog? To Pricing? To Inventory? To Shipping? Those are different domains with different owners, different lifecycles, and different write frequencies."
-* "The practical test: can a column change be made by one team without coordinating with any other team? If not, the ownership boundary is wrong."
-* "Large master tables with complex JOINs and materialized views are almost always a symptom of missing bounded-context thinking — not a storage technology problem."
-* "Transition: let's make this concrete with Exercise 1."
-
----
-
-### Exercise 1 (Divider)
-
-**Slide Title:** Exercise 1
-**Slide contents:** (divider)
-
-See session03-exercise1.md
-
----
-
-**Exercise 1 — Master Data Decomposition**
-
-**Scenario:**
-You inherit a shared `products` table with ~60 columns, currently read and written by five services: Catalog, Pricing, Inventory, Shipping, and Finance. There is no dedicated "product data" business team.
-
-**Step 1 — Diagnose ownership (10 min)**
-
-For each column group below, answer:
-* Which business function creates or updates this data?
-* Which service is (or should be) the *system of record*?
-* Which other services only *read* this — and could they use an ID to resolve it on demand instead?
-
-| Column group | Example columns |
-|---|---|
-| Presentation | name, description, images, slug, tags |
-| Pricing | list_price, sale_price, currency, discount_rules |
-| Stock | sku, quantity_on_hand, reorder_threshold, warehouse_id |
-| Logistics | weight_kg, dimensions_cm, hazmat_flag, carrier_code |
-| Financial | cost_price, tax_class_id, country_of_origin |
-| Meta | created_at, updated_by, version, status |
-
-**Step 2 — Draw the split (10 min)**
-
-* Assign each column group to a service owner
-* For each service, define:
-  * what its table schema looks like (just the columns it owns)
-  * what API it exposes about "product" to other services
-* Identify which cross-service queries become network calls — and which are worth caching or projecting
-
-**Step 3 — Discuss the hard cases (5 min)**
-
-* `status` (active/inactive/discontinued): which service owns it? What if Pricing and Inventory have different opinions?
-* `sku`: is it a Catalog concept or an Inventory concept?
-* If a Finance report needs product name + cost price + tax class — what's the query strategy?
-
-**Facilitation note:**
-Challenge the group: "If you can't name a specific team or role that is responsible for a column, it probably doesn't belong in a single master table."
-
----
-
-### Slide 8 — After the Split: A New Problem Appears
+### Slide 18 — After the Split: A New Problem Appears
 
 **Slide Title:** We Split the Data. Now What?
 **Subtitle / key message:** *Ownership solves the write problem. It immediately creates a read problem and a change-notification problem.*
@@ -526,139 +634,544 @@ Challenge the group: "If you can't name a specific team or role that is responsi
 **The answers — preview of the rest of this session:**
 
 * **Question 1** → API composition: orchestrate reads at the API layer at query time
-* **Question 2** → Yes — a consumer-owned projection (CQRS-lite): the event-driven equivalent of a materialized view
+* **Question 2** → Prefer a consumer-owned read projection (CQRS) over DB-level materialized views; avoid shared read replicas
 * **Question 3** → Events via the outbox pattern: services publish changes as events; consumers subscribe and update their projections
 
 **Speaker notes:**
 
 * "Exercise 1 solved ownership. I want to pause and name the three questions that ownership immediately creates — because teams often feel they've traded one problem for three."
 * "Question 1 is solvable with API composition — parallel HTTP calls assembled at the API layer. We'll cover that in a moment."
-* "Question 2 is the materialized view question. The answer is yes — you can absolutely have a pre-built, denormalized read table. But the consumer owns it, and events keep it fresh. We call this CQRS-lite."
+* "Question 2 is the read-table question. The safe answer is: use a consumer-owned projection, not a shared read replica. We call this CQRS."
+* "Why not DB-level materialized views here? In many teams they grow into JOIN-heavy or aggregated cross-domain tables, which quietly reintroduce hidden coupling."
 * "Question 3 is the change-notification question. This is what the outbox pattern solves: making sure that when a write happens in one service, a reliable event reaches every subscriber."
 * "These three questions are connected. The outbox is the notification mechanism. The projection is the read optimization. API composition is the simple case when you don't need the optimization."
-* "Transition: let's cover the notification mechanism first — how do changes get published reliably?"
+* "Transition: before details, let's map the patterns we cover next."
 
 ---
 
-### Slide 9 — Why Distributed Transactions Are Impractical
+### Slide 19 — Pattern Roadmap (Data on the Move)
 
-**Slide Title:** Distributed Transactions: Why We Avoid Them
-**Subtitle / key message:** *2PC is theoretically possible. Operationally, it's a liability.*
+**Slide Title:** Choosing Read and Write Approaches
+**Subtitle / key message:** *When “SQL JOIN” shortcuts are unavailable, use these patterns to design safely.*
 
 **Slide contents:**
 
-* Two-phase commit (2PC) requires a coordinator that all participants trust
-* Failure of coordinator during commit leaves participants in an uncertain state
-* Any participant blocking holds locks across service boundaries
-* Result: availability goes down, latency goes up, operational complexity spikes
-
-**What we do instead:**
-
-* Local transactions + explicit state + compensating actions (Saga, from Session 1)
-* Reliable event publishing via **outbox pattern**
+* **Read-side design patterns**
+  * Gather Data on Demand
+    * Direct synchronous service-to-service calls
+    * API Composition in a backend layer
+    * Client-side composition in the frontend
+  * Prepare Data Ahead of Time
+    * Cache
+    * Aggregated read view
+  * Anti-pattern: shared read replica
+  
+* **Write-side reliability patterns**
+  * Why distributed transactions are impractical
+  * Synchronous update during the write flow
+    * Scheduled refresh
+    * Batch refresh
+    * Event-driven asynchronous update
 
 **Speaker notes:**
 
-* "2PC can technically work, but it trades availability for consistency in a way that distributed systems pay dearly for."
-* "In practice, the coordinator becomes a single point of failure and a scaling bottleneck."
-* "The distributed systems community has largely moved toward saga + outbox: local commits, eventual convergence, explicit compensation."
-* "This links directly to Session 1: saga compensation is how we handle partial failure without global transactions."
-* "And it connects directly to the questions from Slide 5.5: if we can't use shared transactions to keep services in sync, events are the answer. The outbox is how those events are published reliably."
-* "Transition: the first practical problem is reliable event publishing — the dual-write trap."
+* "This slide is a map for beginners: top half is how to read across services, bottom half is how updates move safely."
+* "For reads, you have two practical choices: get data when needed, or prepare data ahead of time."
+* "For updates, you choose how quickly changes must appear: during the request, on a schedule, in batches, or event-driven."
+* "There is no single best pattern. Start from why: required freshness, expected traffic, and team operational capacity."
+* "These patterns are not mutually exclusive. In many real systems, teams combine multiple patterns for different use cases."
+* "Next, we will walk through each option with concrete examples and simple selection rules."
 
 ---
 
-### Slide 10 — The Dual-Write Problem
+### Slide 20 — Read Patterns: Gather Data on Demand
 
-**Slide Title:** The Dual-Write Trap
-**Subtitle / key message:** *Writing to DB and publishing to a queue in two steps is never atomic.*
+**Slide Title:** Read Patterns: Gather Data on Demand
+**Subtitle / key message:** *Use this when you need fresh data and can accept extra calls at request time.*
 
 **Slide contents:**
 
-* Naive approach:
-  1. `INSERT INTO orders ...` (DB write succeeds)
-  2. `queue.publish("OrderCreated", ...)` (queue publish fails)
-* Or reversed:
-  1. `queue.publish(...)` (succeeds)
-  2. `INSERT INTO orders ...` (DB write fails)
-* In both cases: system state is inconsistent — DB and downstream consumers disagree
+* Common options:
+  * Direct synchronous service-to-service calls
+  * API Composition — orchestrate calls at the API layer
+  * Frontend composition — the browser/mobile app fetches and stitches the data itself
+* Strengths:
+  * Fresh data at request time
+  * No extra copy to maintain
+* Trade-offs:
+  * Higher latency as fan-out grows
+  * More runtime dependencies between services
+  * More complex failure handling
+
+**Comparison Table:**
+
+| Pattern | Freshness | Coupling | Best For |
+|---|---|---|---|
+| **Direct Calls** | Strong (real-time) | Low/Medium | Simple read paths, few downstream calls |
+| **API Composition** | Strong (real-time) | Low/Medium | Moderate reads, strong consistency needs |
+| **Frontend Comp.** | Strong (real-time) | Low (for backend) | Mobile/Web apps already calling APIs |
 
 **Speaker notes:**
 
-* "This looks obvious when drawn out, but it's surprisingly common in production code."
-* "The problem: you have two independent systems and no shared transaction boundary."
-* "Some teams try to 'fix' this with retries or reconciliation jobs — but the race condition is still there."
-* "The real fix is to make publish and persist part of the same local transaction. That's the outbox pattern."
+* "This slide covers one read strategy family: gather data when the request arrives."
+* "Use this family when freshness matters more than peak throughput, such as product detail or admin detail pages."
+* "Quick positioning of the three options: Direct service call is the lightest start, API composition centralizes stitching in one backend place, and Frontend composition lets the client assemble when UI ownership is strong."
+* "Direct calls are the simplest, but they can create point-to-point dependencies if they spread across many paths."
+* "API composition keeps stitching logic in one backend place, which is easier to govern and observe."
+* "Frontend composition can work well when the client already calls multiple APIs and can tolerate partial rendering."
+* "As call fan-out grows, latency and failure handling become the main reason to consider pre-built read models in the next slides."
 
 ---
 
-### Slide 11 — The Outbox Pattern
+### Slide 21 — API Composition
 
-**Slide Title:** The Outbox Pattern
-**Subtitle / key message:** *Persist and publish in one local transaction; relay delivers asynchronously.*
+**Slide Title:** API Composition
+**Subtitle / key message:** *Orchestrate reads at the API layer; assemble the response from multiple services.*
 
 **Slide contents:**
 
-* **Step 1:** In one DB transaction, write to the business table AND the `outbox` table
-* **Step 2:** A relay process (separate) reads undelivered outbox rows and publishes to the queue/broker
-* **Step 3:** On successful publish, mark the outbox row as delivered (or delete it)
+**Good for:**
+  * Low-to-medium read volume
+  * Data that must be fresh (strong read-after-write consistency)
+  * Simple join: few services, few calls
 
-**Outbox table (minimal schema):**
-
-```sql
-CREATE TABLE outbox (
-  id          UUID PRIMARY KEY,
-  topic       TEXT NOT NULL,
-  payload     JSONB NOT NULL,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-  delivered   BOOLEAN NOT NULL DEFAULT false
-);
-```
-
-**Why it works:**
-
-* DB + outbox write = one ACID transaction → no dual-write inconsistency
-* Relay retries until delivered → at-least-once delivery guarantee
-* Consumer must be idempotent (see inbox pattern)
+**Tradeoffs:**
+* Latency = max(downstream calls) — mitigate with parallelism and caching
+* Availability: if any downstream is down, composition may fail or degrade partially
+* Frontend composition is a valid variant when the UI can call multiple endpoints directly and own the stitching logic
+* Good fit: admin dashboards, detail pages, lower-QPS reads
 
 **Diagram / illustration (optional):**
 
-```mermaid
-sequenceDiagram
-  participant S as Order Service
-  participant DB as Database (orders + outbox)
-  participant R as Relay Process
-  participant Q as Message Broker
+```plantuml
+@startuml
+skinparam BackgroundColor transparent
 
-  S->>DB: BEGIN; INSERT orders; INSERT outbox; COMMIT
-  R->>DB: SELECT undelivered outbox rows
-  R->>Q: publish(OrderCreated)
-  R->>DB: mark outbox row delivered
+participant Client as C
+participant "API Layer\n(BFF)" as API
+participant "Catalog\nService" as CAT
+participant "Pricing\nService" as PRC
+participant "Inventory\nService" as INV
+
+C -> API: GET /product/12345
+par
+  API -> CAT: GET /catalog/products/12345
+  CAT --> API: {name, description, images}
+else
+  API -> PRC: GET /prices/12345
+  PRC --> API: {list_price, sale_price, currency}
+else
+  API -> INV: GET /inventory/12345/status
+  INV --> API: {stock_status, quantity_on_hand}
+end
+note right of API
+  API assembles product detail:
+  name + price + stock status
+end note
+API --> C: assembled response
+@enduml
+```
+
+* **When to use:** read must be fresh, fan-out is small, and request volume is moderate
+* **Watch out:** tail latency and downstream availability coupling
+* **Mitigation:** parallel calls, timeouts, fallback/partial response, caching
+
+**Speaker notes:**
+
+* "API composition means one backend endpoint gathers fresh data from multiple services and returns one response."
+* "Concrete example: `GET /checkout/summary?cartId=...` is freshness-critical, because price, stock, and shipping promise can change right before purchase."
+* "Use it when fan-out is small and request volume is moderate."
+* "By contrast, `GET /products/{id}` usually tolerates cache or pre-aggregation for name/image/description, since those fields change less often."
+* "Main risks are latency and dependency failures, so use parallel calls, timeouts, caching, and partial fallback."
+* "Direct calls and Frontend composition are also valid; this slide focuses on API composition as the default starting point."
+* "Transition: if read volume grows and slight lag is acceptable, move to CQRS read projection."
+
+--- 
+
+### Slide 22 — Read Patterns: Prepare Data Ahead of Time
+
+**Slide Title:** Read Patterns: Prepare Data Ahead of Time
+**Subtitle / key message:** *Pre-compute or pre-position data so reads are fast and simple.*
+
+**Slide contents:**
+
+* Common options:
+  * **Cache** — store a recent copy close to the reader; serve without calling upstream services
+  * **Aggregated read view** — a pre-joined table built for one specific screen or use case
+* Strengths:
+  * Low latency at read time — no fan-out calls at request time
+  * Simple read path for high-traffic screens
+* Trade-offs:
+  * Extra storage required
+  * Refresh logic needed to keep the copy current
+  * Data may be slightly stale depending on how often it is refreshed
+
+**Illustration note:** Product list page view fed by updates from Catalog, Pricing, and Inventory
+
+**Speaker notes:**
+
+* "Think of this family as: do the heavy lifting before the request arrives, not during it."
+* "Cache is the simplest entry point — save a recent response and serve it directly. Works well when reads far outnumber writes."
+* "An aggregated read view goes one step further: a dedicated table pre-joining the fields needed for one screen — for example, product list page combining name, price, and stock status into a single query."
+* "The shared cost of both: freshness. How quickly does a change in Catalog or Pricing reach this copy? That depends on how the refresh is triggered."
+* "The event-driven way to keep these views fresh — and owned by the consuming service — is what the next slide covers."
+
+---
+
+### Slide 23 — Aggregated Read View
+
+**Slide Title:** Aggregated Read View: Pre-Join for High-Traffic Screens
+**Subtitle / key message:** *Build a read-optimized copy once; serve it many times with one local query.*
+
+**Slide contents:**
+* **When to use:** high-traffic list/search reads, large API fan-out, eventual consistency acceptable
+* **Watch out:** extra storage, update pipeline complexity, stale windows
+* **Mitigation:** freshness monitoring, refresh mechanism
+* **Important note:** `product_list_view` is owned by the query service. Catalog, Pricing, and Inventory never update the view directly; they publish change events to the query service.
+
+**Diagram:**
+```plantuml
+@startuml
+skinparam BackgroundColor transparent
+skinparam defaultFontName Arial
+
+participant Client as C
+participant "Browse Query Service\n(owner: product_list_view)" as BQS
+database "product_list_view\n(read view)" as VIEW
+
+participant "Catalog\nService" as CAT
+participant "Pricing\nService" as PRC
+participant "Inventory\nService" as INV
+
+note over VIEW
+  Refresh: on schedule
+  or on change event
+end note
+
+CAT --> BQS : ProductUpdated event
+PRC --> BQS : PriceChanged event
+INV --> BQS : StockChanged event
+
+BQS -> VIEW : upsert aggregated row
+
+C -> BQS : GET /productslist
+BQS -> VIEW : SELECT * FROM product_list_view
+VIEW --> BQS : pre-joined data
+BQS --> C : "product list response\n(no fan-out)"
+@enduml
+```
+
+**Speaker notes:**
+* "This pattern answers Slide 18 Question 2: for a 200-item product list, yes, you can use a materialized-view-like approach as a consumer-owned aggregated read view."
+* "Use this pattern when API composition fan-out is too large for high-traffic list or search pages."
+* "At read time, the query service runs one local query instead of hundreds of service calls."
+* "Trade-off: faster reads and simpler request path, but The view may temporarily mismatch with source tables, but will be eventually consistent."
+* "Boundary rule: `product_list_view` is owned only by the query service; Catalog, Pricing, and Inventory publish change events and never write the view directly. Instead they publish change events to the query service"
+* "Any refresh mechanism is also required for the view to catch up with the source. This will be showed in the Write-side patterns section."
+* "Next slide: let's look at a common shortcut that seems similar but is dangerous in microservices - the shared read replica anti-pattern."
+
+---
+
+### Slide 24 — Anti-Pattern: Shared Read Datastore
+
+**Slide Title:** Anti-Pattern — Shared Read Datastore
+**Subtitle / key message:** *It looks convenient, but it quietly re-introduces coupling.*
+
+**Slide contents:**
+
+* Pattern: source services directly write one shared read datastore used for cross-service queries
+* Why it feels attractive: familiar querying style and quick setup
+* Why it re-introduces coupling:
+  * Any schema change still requires coordination across all services that read from the replica
+  * Services become aware of each other's table structures again
+  * Scaling and migration are coupled again
+  * Ownership boundaries become blurry: no one clearly owns the read schema as a product
+
+**Diagram (anti-pattern):**
+```plantuml
+@startuml
+skinparam BackgroundColor transparent
+skinparam defaultFontName Arial
+
+participant Client as C
+participant "Product List API" as API
+database "shared_read_datastore\n(multi-service tables)" as SRD
+
+participant "Catalog\nService" as CAT
+participant "Pricing\nService" as PRC
+participant "Inventory\nService" as INV
+
+CAT -> SRD : update product_name/image
+PRC -> SRD : update price/currency
+INV -> SRD : update stock_status
+
+C -> API : GET /productslist
+API -> SRD : SELECT joined read rows
+SRD --> API : read result
+API --> C : product list response
+
+note over CAT, INV
+  Each source service writes directly.
+  Ownership of read schema becomes unclear.
+end note
+@enduml
+```
+
+**Preferred alternatives:**
+
+* API composition — fresh data, moderate QPS
+* Consumer-owned cache — simple optimization for repeated reads
+* Consumer-owned aggregated read view — high QPS, tolerate slight lag
+
+**Speaker notes:**
+
+* "I've seen this pattern appear within weeks of a migration as a 'temporary' solution — it then becomes permanent."
+* "Compared with Slide 23, the key difference is ownership: here multiple services write the same read datastore directly."
+* "Simple test: can Service A change a column without notifying Service B or C? If not, coupling is back."
+* "Transition: once we create consumer-owned copies, the next question is how source changes propagate reliably to them."
+
+---
+
+### Slide 25 — Write-Side Question: How Do Derived Views Stay Updated?
+
+**Slide Title:** Write-Side Patterns: How Do Copies Stay in Sync?
+**Subtitle / key message:** *Once we create a read-friendly copy, we must keep it updated.*
+
+**Slide contents:**
+
+* Typical update approaches:
+  * Local same-service update
+  * Scheduled refresh
+  * Batch refresh
+  * Event-driven asynchronous pdate
+* Choice depends on:
+  * How fresh data must be
+  * How much complexity the team can operate
+
+**Illustration (e-commerce example):**
+```plantuml
+@startuml
+skinparam BackgroundColor transparent
+skinparam defaultFontName Arial
+
+rectangle "Source Service\n(write happens)" as SRC
+database "Derived Read View" as VIEW
+
+rectangle "A) Local same-service update" as A
+rectangle "B) Scheduled refresh" as B
+rectangle "C) Batch refresh" as C
+rectangle "D) Event-driven update" as D
+
+SRC --> A
+SRC --> B
+SRC --> C
+SRC --> D
+
+A --> VIEW : update now
+B --> VIEW : refresh every N minutes
+C --> VIEW : refresh in bulk window
+D --> VIEW : update on change event
+
+note right of VIEW
+  Same target, different
+  freshness vs complexity tradeoff
+end note
+@enduml
 ```
 
 **Speaker notes:**
 
-* "The key insight: the outbox table lives in the same database as your business data, so both writes share one ACID transaction."
-* "The relay is simple, boring, and restartable — it only needs to deliver what's already committed."
-* "Relay crashes are safe: on restart it re-reads undelivered rows and re-publishes. The consumer must handle duplicates."
-* "Transition: what about the consumer side? That's the inbox pattern."
+* "Denormalized or copied data does not maintain itself; we must maintain it, so we need an explicit update strategy."
+* "Here are four patterns, and you choose based on freshness needs, consistency expectations, and change frequency."
+* "Local same-service update means updates inside one service boundary, not a cross-service transaction."
+* "The other three patterns are cross-service and asynchronous, so changes are copied with eventual consistency."
+* "Also plan for failure cases: if something goes wrong, source and target can become inconsistent."
+* "Transition: next slide is a quick event-driven update walkthrough, then we move to the first failure mode: the dual-write trap."
 
 ---
 
-### Slide 12 — Inbox Pattern & Idempotent Consumers
+### Slide 26 — Event-Driven Update (Quick View)
 
-**Slide Title:** Inbox Pattern: Safe At-Least-Once Consumption
+**Slide Title:** Event-Driven Update: What Happens, Step by Step
+**Subtitle / key message:** *A source service emits a change event, and consumers update their own read models asynchronously.*
+
+**Slide contents:**
+
+* **Step 1:** Source service commits a business change
+* **Step 2:** Source publishes a change event (for example, `ProductPriceChanged`)
+* **Step 3:** Consumer service receives the event and updates its local copy/read view
+* **Step 4:** Reads use the updated local view (with small propagation lag)
+
+**Diagram:**
+```plantuml
+@startuml
+skinparam BackgroundColor transparent
+skinparam defaultFontName Arial
+
+participant "Pricing Service" as PRC
+queue "Event Broker" as BUS
+participant "Browse Query Service" as BQS
+database "product_list_view" as VIEW
+
+PRC -> PRC : Update price in local DB
+PRC -> BUS : Publish ProductPriceChanged
+BUS -> BQS : Deliver ProductPriceChanged
+BQS -> VIEW : Upsert price for product_id
+@enduml
+```
+
+**Speaker notes:**
+
+* "Event-driven update means we do not call every consumer synchronously from the write path."
+* "Instead, the source publishes one change event, and each consumer updates its own local view."
+* "This improves decoupling and scale, but introduces propagation lag, so data becomes eventually consistent (Module 1)."
+* "Operationally, delivery is usually at-least-once: events can be delayed or retried, so consumers must handle duplicates safely. (Remember Module 2)"
+* "But what if DB write and event publish are two independent steps with no atomicity? If one succeeds and the other fails, you may lose the event entirely — with no record of what went wrong."
+* "That is the dual-write problem: the risk of data loss, not just duplication. Next slide."
+
+---
+
+### Slide 27 — When DB Write and Event Publish Disagree
+
+**Slide Title:** When DB Write and Event Publish Disagree
+**Subtitle / key message:** *Two separate steps can fail independently. How do we handle it?*
+
+**Slide contents:**
+
+**The problem:**
+* `UPDATE prices` succeeds, but `publish(ProductPriceChanged)` fails → consumers never see the new price
+* Or: publish succeeds, but DB update fails → consumers apply a price that was never committed
+* Either way: pricing DB and `product_list_view` disagree
+
+**How do we handle this? — Two complementary layers**
+
+| Layer | What it solves | Mechanism |
+|---|---|---|
+| **Outbox (producer side)** | Never lose an event record | Atomic local write: business data + outbox in one transaction |
+| **Inbox pattern / Idempotent consumer** | Safely handle duplicate delivery | Inbox table or natural idempotency (Module 1) |
+| **Together** | Exactly-once business outcomes | At-least-once publishing + at-least-once consumption |
+
+* **Why not 2PC (DB + broker)?**
+  * Couples DB and broker at commit time → reduces availability and adds latency
+  * Ties your architecture to a specific middleware → platform lock-in
+  * In event-driven systems, eventual consistency is the accepted model, not global commits
+
+**Speaker notes:**
+
+* "Pricing Service updates the price and publishes an event. These are two separate operations. If either fails alone, source and consumers diverge — and you may have no recovery record."
+* "The fix is two complementary layers, not one silver bullet."
+* "Producer side: the outbox pattern ensures no event record is ever lost. Business data and event are written atomically in one local transaction."
+* "Consumer side: idempotent consumption ensures duplicate deliveries are harmless. This is Module 1's idempotency principle applied to the consumer layer."
+* "Together: at-least-once publishing + at-least-once consumption = exactly-once business outcomes."
+* "Why not 2PC? It couples DB and broker at commit time, reducing availability, and ties you to specific middleware — platform lock-in."
+
+---
+
+### Slide 28 — The Outbox Pattern
+
+**Slide Title:** The Outbox Pattern - Relay Flow
+**Subtitle / key message:** *Relay moves committed changes to the broker asynchronously.*
+
+**Slide contents:**
+
+**Diagram / illustration (optional):**
+
+```plantuml
+@startuml
+skinparam BackgroundColor transparent
+
+box "Pricing Service (Pricing Service boundary)" #LightBlue
+participant "Pricing Service" as S
+database "Prices" as PDB
+database "Outbox" as ODB
+participant "Outbox Relay" as R
+end box
+
+participant "Message Broker" as Q
+participant "Browse Query Service" as B
+database "product_list_view" as V
+
+S -> PDB: UPDATE prices
+S -> ODB: INSERT ProductPriceChanged
+note right of S
+  Same local transaction:
+  UPDATE prices + INSERT outbox
+  `{product_id: 42, new_price: 29.99, currency: 'USD'}`
+end note
+R -> ODB: SELECT undelivered outbox rows
+R -> Q: publish(ProductPriceChanged)
+R -> ODB: mark outbox row delivered
+note right of R
+  Publish and move on.
+  Relay does not wait for
+  view update completion.
+end note
+B -> Q: consume(ProductPriceChanged)
+B -> V: upsert latest price
+
+note over PDB
+  Only Pricing Service
+  accesses Prices directly
+end note
+@enduml
+```
+
+**Speaker notes:**
+
+* "This diagram shows how the Outbox Pattern works and introduces the Relay component."
+* "Key step: Pricing Service writes business data and the outbox record in one local transaction. Atomicity ensures we never lose the change event record."
+* "The outbox table is simple: an ID, a topic name, the event payload (JSON), a timestamp, and a delivered flag. For example, the payload here would be something like `{product_id: 42, new_price: 29.99, currency: 'USD'}` — just the price change detail that consumers need."
+* "Relay polls the outbox, publishes each event to the broker, then marks the row as delivered. It is entirely decoupled from Pricing Service's business logic."
+* "Relay is fire-and-forget: publish and move on. It does not wait for downstream consumers."
+* "Service boundary stays explicit: only Pricing Service writes `prices`; other services react via events, never by accessing the database directly."
+
+---
+
+### Slide 29 — Inbox Pattern & Idempotent Consumers
+
+**Slide Title:** Inbox Pattern - Idempotent Consumers
 **Subtitle / key message:** *Deduplicate on the consumer side; assume every message may arrive more than once.*
 
 **Slide contents:**
 
+* Bridge from Slide 27: we said consumer-side safety is either **natural idempotency** or an **inbox table**
 * Problem: relay sends at-least-once → consumer may receive duplicates
 * **Inbox pattern:** record processed message IDs in a local `inbox` table before processing
   * Check: if `message_id` already exists → skip (idempotent replay)
   * Write: insert `message_id` + process in one local transaction
 * Alternatively: use natural idempotency (e.g., `INSERT ... ON CONFLICT DO NOTHING`)
 
+**Diagram (inbox dedupe flow):**
+
+```plantuml
+@startuml
+skinparam BackgroundColor transparent
+skinparam defaultFontName Arial
+
+participant "Message Broker" as BUS
+
+box "Browse Query Service boundary" #LightBlue
+participant "Browse Query Service" as BQS
+database "inbox" as INBOX
+database "product_list_view" as VIEW
+end box
+
+BUS -> BQS: ProductPriceChanged(message_id=abc123)
+BQS -> INBOX: INSERT message_id=abc123
+INBOX --> BQS: success (new)
+BQS -> VIEW: upsert latest price
+
+BUS -> BQS: ProductPriceChanged(message_id=abc123)
+note right of BQS : <color:red>#duplicate</color>
+BQS -> INBOX: INSERT message_id=abc123
+INBOX --> BQS: duplicate key / already exists
+BQS -> BQS: skip update (idempotent replay)
+@enduml
+```
+
 **Inbox table (minimal schema):**
+
+The inbox datastore holds a record of successfully processed messages—typically just the message ID (as primary key for deduplication) and a timestamp when processed. This lightweight table enables the consumer to idempotently replay incoming messages.
 
 ```sql
 CREATE TABLE inbox (
@@ -669,6 +1182,7 @@ CREATE TABLE inbox (
 
 **Speaker notes:**
 
+* "Quick bridge from Slide 27: we introduced two consumer-side options — natural idempotency or an inbox table. This slide zooms into the inbox option."
 * "Inbox is the consumer-side complement of outbox: outbox makes publishing reliable; inbox makes consuming safe."
 * "This directly applies Session 1's idempotency principle to the consumer layer."
 * "The message_id is the deduplication key. Scope it to the topic + consumer to avoid cross-topic collisions."
@@ -676,216 +1190,66 @@ CREATE TABLE inbox (
 
 ---
 
-### Slide 13 — CDC Basics
+### Slide 30 — Version Check Pattern
 
-**Slide Title:** CDC: Change Data Capture
-**Subtitle / key message:** *Read changes from the DB's own log — no application-level relay needed.*
-
-**Slide contents:**
-
-* CDC reads the DB's write-ahead log (WAL) or binlog to capture row-level changes
-* Examples: Debezium (Postgres/MySQL), AWS DMS, Google Datastream
-* Outbox + CDC = capture outbox row inserts from the WAL and publish to broker
-* Cloud-native equivalents: DynamoDB Streams, Cosmos DB Change Feed, and similar managed change streams
-* Benefits:
-  * No relay process to maintain
-  * Captures changes even from legacy code paths that don't call your relay
-  * Can align with a buy-over-build approach for cloud-native teams
-* Tradeoffs:
-  * Infrastructure dependency (Kafka, connector cluster)
-  * Schema changes in WAL can break CDC pipelines
-  * Suitable for higher-traffic or platform-level setups
-
-**Diagram / illustration (optional):**
-
-```
-DB WAL ──► CDC Connector (Debezium) ──► Kafka Topic ──► Consumer
-```
-
-**Speaker notes:**
-
-* "CDC is a powerful tool at platform scale, but it adds operational complexity."
-* "For small teams, a simple poll-based relay against the outbox table is often the right starting point."
-* "Think of CDC as the outbox pattern at the infrastructure level: same guarantees, different operational model."
-* "For cloud-native teams, many modern databases already provide outbox-like change streams. That can be the pragmatic buy-over-build choice instead of writing your own relay process."
-* "Scope note: today we cover CDC only as a data-change propagation mechanism; full pub-sub architecture design is Session 101-05."
-* "Transition: now that we can publish changes reliably, let's answer the read question: how do consumers build fast views from distributed owners?"
-
----
-
-### Slide 14 — Query Patterns for Split Data
-
-**Slide Title:** Reading Data That Lives in Multiple Services
-**Subtitle / key message:** *Joins are gone. Here are the patterns that replace them.*
+**Slide Title:** Version Check Pattern
+**Subtitle / key message:** *A consumer may receive valid events out of order, so it must reject stale updates.*
 
 **Slide contents:**
 
-* Problem: a UI needs `{ order, product_details, user_profile }` from three services
-* Option A: **API composition** — orchestrate calls at the API layer
-* Option A2: **Frontend composition** — the browser/mobile app fetches and stitches the data itself
-* Option B: **CQRS-lite** — maintain a read-optimized projection updated via events
-* Denormalization is often the feature that makes Option B worthwhile
-* Option C (anti-pattern): **shared read replica** — re-introduces the shared DB coupling
+```plantuml
+@startuml
+skinparam BackgroundColor transparent
+skinparam defaultFontName Arial
 
-**Comparison Table:**
+participant "Message Broker" as BUS
 
-| Pattern | Freshness | Complexity | Best For |
-|---|---|---|---|
-| **API Composition** | Strong (real-time) | Low/Medium | Moderate reads, strong consistency needs |
-| **CQRS-lite** | Eventual | High | High-volume reads, complex search/filtering |
-| **Frontend Comp.** | Strong (real-time) | Low (for backend) | Mobile/Web apps already calling APIs |
-| **Shared Replica** | Strong | High (coupling) | *Anti-pattern* in strict microservices |
+box "Browse Query Service boundary" #LightBlue
+participant "Browse Query Service" as BQS
+database "product_list_view" as VIEW
+end box
 
-**Speaker notes:**
+note over BUS
+Events may arrive out of order
+end note
 
-* "Once data is split, you need a strategy for reading across boundaries."
-* "There is no single right answer: use the simplest pattern that meets your latency, consistency, and operational constraints."
-* "And in microservices, losing JOIN is not a failure. We often pay a little extra in storage to buy speed and decoupling through denormalization."
-* "Transition: let's look at each option."
+BUS -> BQS: ProductPriceChanged(product_id=SKU-1, version=11, price=120)
+BQS -> VIEW: read current last_applied_version
+VIEW --> BQS: 10
+BQS -> VIEW: upsert price=120,\nlast_applied_version=11
 
----
+BUS -> BQS: ProductPriceChanged(product_id=SKU-1, version=10, price=100)
+note right of BQS : <color:red>#older event arrives later</color>
+BQS -> VIEW: read current last_applied_version
+VIEW --> BQS: 11
+BQS -> BQS: detect stale event\n(version 10 < 11)
+BQS -> BQS: skip update
 
-### Slide 15 — API Composition
-
-**Slide Title:** API Composition
-**Subtitle / key message:** *Orchestrate reads at the API layer; assemble the response from multiple services.*
-
-**Slide contents:**
-
-* A dedicated layer (BFF, API gateway, or the calling service) issues parallel calls
-* Assembles the result before returning to the client
-* Good for:
-  * Low-to-medium read volume
-  * Data that must be fresh (strong read-after-write consistency)
-  * Simple join: few services, few calls
-
-**Tradeoffs:**
-
-* Latency = max(downstream calls) — mitigate with parallelism and caching
-* Availability: if any downstream is down, composition may fail or degrade partially
-* Frontend composition is a valid variant when the UI can call multiple endpoints directly and own the stitching logic
-* Good fit: admin dashboards, detail pages, lower-QPS reads
-
-**Diagram / illustration (optional):**
-
-```mermaid
-sequenceDiagram
-  participant C as Client
-  participant API as API Layer (BFF)
-  participant O as Order Service
-  participant P as Product Service
-  participant U as User Service
-
-  C->>API: GET /order-details/ORD-1
-  par
-    API->>O: GET /orders/ORD-1
-    API->>P: GET /products/PROD-42
-    API->>U: GET /users/USR-7
-  end
-  API-->>C: assembled response
+note right of BUS
+  "version" can also be a timestamp
+  or any monotonic sequence number
+end note
+@enduml
 ```
 
 **Speaker notes:**
 
-* "API composition is the simplest approach: no new infrastructure, no eventual consistency lag — just parallel HTTP calls."
-* "And sometimes the best place to compose is not the backend at all, but the browser or mobile app. Frontend composition can reduce backend orchestration load when the UI is already calling multiple services."
-* "The risk is fan-out latency and availability coupling: if Product Service is down, the whole response may fail."
-* "Mitigate with caching (product details rarely change), partial degradation (return order data without product details), and timeouts (Session 2)."
-* "Transition: when freshness can be relaxed and QPS is high, CQRS-lite is more efficient."
+* “Inbox answered *what if the same message appears twice?*"
+* "This slide answers the second intuitive question: *what if an older event arrives after a newer one?*”
+* “Message ordering is not guaranteed in distributed systems. Retries, consumer restarts, and partitioning can all change arrival order. That is not a bug; it is a normal property of asynchronous messaging.”
+* “The pattern is simple: each event carries a monotonic version. The consumer compares it with `last_applied_version` in its local view. If the incoming version is older, it skips the update.”
+* “Why this matters: a stale overwrite often fails silently. No exception, no obvious alert — just incorrect data being served to users.”
+* “Some brokers, such as Kafka, give you ordering within a partition for the same key. That helps, but it is not a complete guarantee for the whole system. The version check is still your safety net.”
+* “So on the consumer side: **inbox** handles duplicates, and **version check** handles stale or out-of-order events. Together they address two of the most common consumer-side failure modes.”
 
 ---
 
-### Slide 16 — CQRS-lite (Read Projection)
-
-**Slide Title:** CQRS-lite: Your Event-Driven Materialized View
-**Subtitle / key message:** *Yes, you can still have a materialized view — you own it, events keep it fresh.*
-
-**Slide contents:**
-
-**What it is**
-
-* A consuming service subscribes to events from one or more source services
-* It builds and maintains a local, denormalized read-optimized table — its own projection
-* Reads hit the local projection directly — no fan-out calls, no JOINs at read time
-* This is deliberate denormalization: duplicate stable attributes locally to reduce coupling and latency
-
-**How it compares to a traditional materialized view**
-
-| Traditional materialized view | CQRS-lite projection |
-|---|---|
-| Defined in the DB, refreshed by the DB engine | Defined and owned by the consuming service |
-| Sources via SQL query against shared tables | Sources via events from the owning services |
-| Refresh triggered by DB scheduler or manual command | Updated when `ProductNameChanged` event arrives |
-| Couples consumer directly to source schema | Consumer depends only on the event contract |
-
-**Example:**
-
-```
-Source events:  CatalogProductUpdated, PricingRuleChanged, InventoryStockChanged
-Projection:     product_search_index { product_id, name, list_price, in_stock, ... }
-Read:           SELECT * FROM product_search_index WHERE category = ? ORDER BY list_price
-```
-
-**Tradeoffs:**
-
-* Reads are fast and independent (no downstream calls at read time)
-* Data is eventually consistent — projection lags behind source events by milliseconds to seconds
-* Consumer must handle duplicate events and out-of-order delivery (Session 1: idempotent consumer)
-* Projection rebuild needed if event history is unavailable — design for this from day one
-* Rule of thumb: query highly volatile fields; duplicate relatively stable fields
-* Good fit: high-QPS reads, list/search views, reporting
-
-**Speaker notes:**
-
-* "Remember Question 2 from Slide 5.5: 'Can I still have a materialized view?' This is the answer: yes — and CQRS-lite is exactly that."
-* "The key difference from a traditional materialized view: you own this table, you define its schema for your specific read use case, and events from the source services keep it fresh."
-* "This is also where denormalization becomes a feature, not a bug. Duplicating `product_name` into an order or search view is often the right tradeoff if it buys decoupling and read speed."
-* "The dependency also flips in your favor: instead of querying source tables directly, you depend on the event contract. If Catalog renames a column internally, it doesn't break your projection — as long as the event shape stays compatible."
-* "This is eventually consistent — your projection may lag the source by milliseconds to a few seconds. Design your UX accordingly (Session 1 principles apply)."
-* "Practical rule of thumb: if the value changes every second, like stock level, query it. If it changes once a month, like product name, duplicate it."
-* "Two operational risks to plan for: duplicate events (use idempotent upserts on the projection) and out-of-order delivery (use an event sequence or version field to avoid overwriting newer data with older)."
-* "Scope note: we use events here for projection freshness; deeper pub-sub architecture topics (topic design, delivery semantics, consumer groups, DLQ strategy) are in Session 101-05."
-* "The operational cost is real: you need event subscriptions, projection storage, update logic, and a rebuild strategy. Don't reach for this when API composition is sufficient."
-* "Transition: next — the anti-pattern that looks like this but re-introduces all the schema coupling we just removed."
-
----
-
-### Slide 17 — Anti-Pattern: Shared Read Replica
-
-**Slide Title:** Anti-Pattern — Shared Read Replica
-**Subtitle / key message:** *A shared read DB feels harmless. It isn't.*
-
-**Slide contents:**
-
-* Pattern: services write to their own DBs; a shared replica aggregates all tables for read queries
-* Why it feels attractive: cheap, familiar, no new infrastructure
-* Why it re-introduces coupling:
-  * Any schema change still requires coordination across all services that read from the replica
-  * Services become aware of each other's table structures again
-  * Scaling and migration are coupled again
-
-**Preferred alternatives:**
-
-* API composition (fresh data, moderate QPS)
-* CQRS projection (high QPS, tolerate slight lag)
-* Direct service calls with response caching
-
-**Speaker notes:**
-
-* "I've seen this pattern appear within weeks of a migration as a 'temporary' solution — it then becomes permanent."
-* "The test: can you change a column in Service A's schema without telling Service B or C? If not, the coupling is back."
-* "Transition: let's apply this end-to-end with Exercise 2: owner write -> outbox event -> consumer projection update."
-
----
-
-### Exercise 2 (Divider)
+### Slide 31 - Exercise 2
 
 **Slide Title:** Exercise 2
-**Slide contents:** (divider)
+**Slide contents:** Change Propagation Pipeline
 
 See session03-exercise2.md
-
----
 
 **Exercise 2 — Change Propagation Pipeline (Outbox + Projection)**
 
@@ -908,29 +1272,33 @@ Catalog updates a product name. Search and Pricing each keep their own denormali
 
 ---
 
-### Slide 18 — Handout
+### Slide 32 — Session Summary
 
-**Slide Title:** Handout: Keep the Checklist
-**Subtitle / key message:** *The detailed checklist belongs in your pocket, not in the closing lecture slide.*
+**Slide Title:** Session Summary
+**Subtitle / key message:** *Own the data first. Then choose patterns deliberately.*
 
 **Slide contents:**
 
-* DB-per-service checklist (ownership, exposure, migration rules)
-* Master data diagnostic: who is the system of record?
-* Bounded-context split template: attribute -> owner -> API surface
-* Outbox + inbox reference schema
-* Query pattern comparison: API composition vs CQRS-lite vs shared read replica
-* Rules-of-thumb checklist for migrations and ownership boundaries
+1. **Ownership first** — one service, one schema; every attribute has exactly one system of record
+2. **Read patterns come in two families:**
+   * Gather on demand (API composition)
+   * Prepare ahead of time (aggregated read view / CQRS)
+3. **Write-side reliability** — outbox (no event lost), inbox (duplicates harmless), version check (stale events rejected)
+4. **Every copy needs an owner** — who refreshes it, how stale is acceptable, whose read problem does it solve?
+5. **Choose patterns by business constraints** — freshness, latency, complexity, failure tolerance — not by fashion
 
 **Speaker notes:**
 
-* "The detailed checklist is still important, but it's more useful as a handout than as a heavy wrap-up slide."
-* "Use it when you're back at your desk designing a split, a migration, or a projection."
-* "Transition: let's close the session with the three points I want you to remember without notes."
+* "Let me bring the whole session together. We started with a shared database and asked: what breaks when we split?"
+* "Data boundaries follow domain boundaries. Once ownership is clear, two questions appear: how do consumers read data they don't own, and how do derived views stay up to date."
+* "Read patterns: gather on demand is simple but adds runtime coupling. Prepare ahead of time decouples at the cost of eventual consistency. Neither is universally better — choose by the use case."
+* "Write-side reliability: the outbox guarantees no event is lost. The inbox and version check guarantee the consumer handles duplicates and ordering safely."
+* "One guardrail I want you to remember: any cache, replica, or aggregated view must have a clear owner and purpose. Without that, copied data becomes unmanaged coupling."
+* "Eventual consistency is not 'anything goes' — it means the team explicitly decides where temporary lag is acceptable and designs the user experience around it."
 
 ---
 
-### Slide 19 — Bridge to Next Session
+### Slide 33 — Bridge to Next Session
 
 **Slide Title:** What's Next — API Design for Evolution
 **Subtitle / key message:** *Owned data needs an owned API that can evolve safely.*
@@ -958,14 +1326,14 @@ Catalog updates a product name. Search and Pricing each keep their own denormali
 
 ---
 
-### Slide 20 — Wrap: 3 Takeaways
+### Slide 34 — Wrap: 3 Takeaways
 
 **Slide Title:** 3 Takeaways
 **Slide contents:**
 
 1. **Own your data:** one service, one schema — share IDs, not tables
 2. **Outbox, not dual-write:** make event publishing atomic with the business transaction
-3. **Query patterns replace joins:** use API composition or CQRS-lite; avoid shared read replicas
+3. **Query patterns replace joins:** use API composition or CQRS; avoid shared read replicas
 
 **Speaker notes:**
 
@@ -973,3 +1341,5 @@ Catalog updates a product name. Search and Pricing each keep their own denormali
 * "Start small: pick one service, extract its tables, enforce the ownership rule, add the outbox."
 * "Build on Session 1 and 2: idempotency, eventual consistency, and observability all apply in this data layer too."
 
+
+# EOF

@@ -348,15 +348,15 @@ Two things to consider before triggering a compensation action:
 1. **Verify the forward action actually completed.** Before voiding a payment, confirm from the idempotency record or the Payment Service that the payment was truly authorized. There is no need — and it may be harmful — to compensate an action that never succeeded in the first place.
 2. **Decide on the compensation strategy based on the downstream service's guarantee:**
 
-> **What is a "scoped idempotency key"?**
-> A scoped key uniquely identifies one specific step within a larger workflow, so each step can be retried independently. There are several strategies to achieve this and the following 2 are typical ones:
-> - **Preferred: Use the downstream transaction ID.** When a payment succeeds, the Payment Service returns a unique transaction ID (e.g., Stripe's `ch_abc123`). Using this as the idempotency key for the void call (e.g., `void(txn_id: ch_abc123)`) is ideal — it's externally verifiable, guaranteed unique by the provider, and both sides share the exact same reference.
-> - **Fallback: Construct a scoped key.** If no natural transaction ID exists, construct one from the parent request key + a step suffix, e.g., `u-456` (the order) + `-pay-void` (the void step) = `u-456-pay-void`.
-
 | Downstream Service Guarantee | Your Compensation Strategy |
 |---|---|
 | Service is **already idempotent** for the compensation (e.g., `Void` is safe to call repeatedly) | Assign it a stable scoped key (e.g., `u-456-pay-void`) and retry safely. |
 | Service is **NOT idempotent** for the compensation | Check your idempotency record first. Only call `Void` or `Refund-in-progress` if your idempotency record shows the payment has not already been voided. If your idempotency record shows the payment has already been `Voided`, do nothing. |
+
+> **What is a "scoped idempotency key"?**
+> A scoped key uniquely identifies one specific step within a larger workflow, so each step can be retried independently. There are several strategies to achieve this and the following 2 are typical ones:
+> - **Preferred: Use the downstream transaction ID.** When a payment succeeds, the Payment Service returns a unique transaction ID (e.g., Stripe's `ch_abc123`). Using this as the idempotency key for the void call (e.g., `void(txn_id: ch_abc123)`) is ideal — it's externally verifiable, guaranteed unique by the provider, and both sides share the exact same reference.
+> - **Fallback: Construct a scoped key.** If no natural transaction ID exists, construct one from the parent request key + a step suffix, e.g., `u-456` (the order) + `-pay-void` (the void step) = `u-456-pay-void`.
 
 The safest default is to always assign a scoped idempotency key to every compensation call — it costs nothing and makes recovery deterministic regardless of the downstream service's behaviour.
 
