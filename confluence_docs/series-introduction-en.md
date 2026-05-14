@@ -28,7 +28,7 @@ Rather than overwhelming you with a comprehensive list of implementation details
 | **[101-01]** | **Idempotency & Consistency** | Staying correct under retries, duplicates, and lag. |
 | **[101-02]** | **Resilience & Observability** | Containing failure and reducing MTTR in distributed calls. |
 | **[101-03]** | **Data Boundaries & Ownership** | Own the domain and move data safely. |
-| **[101-04]** | **Workflows & Messaging** | Moving from jobs/batch to event-driven chains safely. |
+| **[101-04]** | **Workflows & Messaging** | How to coordinate services while maintaining loose coupling. |
 | **[101-05]** | **API Evolution** | Evolve contracts without breaking consumers (expand/contract + compatibility rules). |
 | **[101-06]** | **Deployment Safety** | Shipping changes safely with canary/blue-green, flags, and rollbacks. |
 
@@ -47,8 +47,8 @@ Even with correct logical design, systems fail. This module covers stability pat
 The "Shared Database" is a trap—one small schema change in Service A breaks Service B. This module covers Schema Ownership, why services should only talk to their own databases, and how to use the Outbox Pattern to avoid dual-write failures. 
 
 #### 101-04: Workflows & Messaging
-**Moving from Batch Jobs to Event Chains.**
-We explore when to move from waiting for immediate responses to queuing asynchronous tasks. We contrast Orchestration with Choreography, and explore the Saga Pattern for triggering compensating actions (the "Undo" button) when distributed processes fail.
+**Coordination for Loose Coupling.**
+Synchronous call chains silently create temporal and behavioral coupling at the application layer. This module introduces three levels of service communication — synchronous chains, queues, and event-driven publication — and contrasts the two primary workflow coordination styles: Orchestration and Choreography.
 
 #### 101-05: API Evolution
 **How to Change Without Breaking the World.**

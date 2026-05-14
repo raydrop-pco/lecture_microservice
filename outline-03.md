@@ -1300,29 +1300,29 @@ Catalog updates a product name. Search and Pricing each keep their own denormali
 
 ### Slide 33 — Bridge to Next Session
 
-**Slide Title:** What's Next — API Design for Evolution
-**Subtitle / key message:** *Owned data needs an owned API that can evolve safely.*
+**Slide Title:** What's Next — Workflows & Messaging
+**Subtitle / key message:** *Owned data needs a coordination layer that doesn't re-introduce the coupling you just eliminated.*
 
 **Slide contents:**
 
-* Session 4 (next): **API Design for Evolution**
-  * Backward compatibility, versioning strategies
-  * Error model, pagination/filtering consistency
-  * Contract testing and consumer-driven contracts
+* Session 4 (next): **Workflows & Messaging — From Sync Chains to Event-Driven Workflows**
+  * Loose coupling — measured, not assumed
+  * The three communication levels: sync chains → queues → event-driven
+  * Orchestration vs. choreography: tradeoffs and when to choose each
 
 * The chain:
   * Session 1: correctness under retries (idempotency, eventual consistency)
   * Session 2: stability and diagnosability (resilience, observability)
   * **Session 3: data ownership and reliable messaging**
-  * Session 4: API evolution without breaking consumers
-  * Session 5: pub-sub architecture patterns (event design, delivery, reliability patterns)
+  * Session 4: workflows & messaging — coordination without tight coupling
+  * Session 5: API evolution without breaking consumers
 
 **Speaker notes:**
 
-* "Data ownership gives you the isolation; API design gives you the evolution safety."
-* "We'll carry the expand/contract principle from today directly into API versioning strategy."
-* "And when you're ready for deeper event architecture decisions, Session 101-05 is the dedicated pub-sub deep dive."
-* "Same baseline: assume consumers depend on your contract — design for backward compatibility first."
+* "Data ownership gives you the isolation. But services still need to coordinate — and that coordination can re-introduce the coupling you just eliminated."
+* "Session 4 takes the same coupling lens from today and applies it one layer up: sync call chains, fan-out, tail latency, and retry amplification."
+* "Then we build the vocabulary for async coordination: commands vs. events, and orchestration vs. choreography."
+* "Same baseline: assume your dependencies can fail — design the coordination layer for that reality."
 
 ---
 
